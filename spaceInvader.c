@@ -149,7 +149,6 @@ void InitShips(Game *g) {
   g->player.speed = 3;
   g->player.bullet.active = 0;
   g->player.bullet.speed = 5;
-  g->player.bullet.sound = LoadSound("assets/shoot.wav");
 
   g->enemy.pos = (Rectangle) { 0, 15, STD_WIDTH, STD_HEIGHT };
   g->enemy.color = RED;
@@ -158,7 +157,6 @@ void InitShips(Game *g) {
   g->enemy.bullet.active = 0;
   g->enemy.bullet.timer = GetTime();
   g->enemy.bullet.speed = 5;
-  g->enemy.bullet.sound = LoadSound("assets/shoot.wav");
 }
 
 void FinishGame(Game *g) {
@@ -242,7 +240,7 @@ void UpdateStartScreen(Game *g) {
 
   BeginDrawing();
   ClearBackground(BACKGROUND_COLOR);
-  DrawCenteredText("SPACE INVADERS", 70, 0, 38, DARKBROWN);
+  DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
   DrawCenteredText(label_buf, 40, 0, 170, remaining ? WHITE : PURPLE);
   if (!remaining) DrawCenteredText(nick_buf,  40, sin((GetTime() - 0.2) * 13) * 3, 220 + cos((GetTime() - 0.2) * 5) * 4, DARKPURPLE);
@@ -252,9 +250,20 @@ void UpdateStartScreen(Game *g) {
 }
 
 void UpdateEndScreen(Game *g) {
+  if (IsKeyPressed(KEY_ENTER)) {
+    InitGame(g);
+    PlaySound(g->assets.s_enter);
+  }
+
+  char* message = g->winner ? "YOU WON" : "YOU DIED";
+  Color color   = g->winner ? GREEN         : RED;
+  Color color_d = g->winner ? DARKGREEN     : DARKBROWN;
+
   BeginDrawing();
   ClearBackground(BACKGROUND_COLOR);
-  DrawCenteredText(g->winner ? "Voce Ganhou" : "Voce Perdeu", 80, 0, 40, g->winner ? GREEN : RED);
+  DrawCenteredText(message, 80, sin((GetTime() - 0.2) * 13) * 4, 250 + cos((GetTime() - 0.2) * 5) * 5, color_d);
+  DrawCenteredText(message, 80, sin(GetTime() * 13) * 3, 250 + cos(GetTime() * 5) * 4, color);
+  DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
   EndDrawing();
 }
 
@@ -377,6 +386,7 @@ void LoadAssets(Game *g) {
   g->assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
   g->assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
   g->assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
+  g->enemy.bullet.sound = LoadSound("assets/shoot.wav");
 }
 
 void UnloadAssets(Game *g) {
