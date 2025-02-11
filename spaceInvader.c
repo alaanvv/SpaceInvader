@@ -139,7 +139,8 @@ void InitGameWindow(Game *g) {
   SetTargetFPS(60);
   LoadAssets(g);
   g->music = LoadMusicStream("assets/soundtrack.mp3");
-  SetMusicVolume(g->music, VOLUME);
+  SetMusicVolume(g->music, VOLUME * 3);
+  SetMasterVolume(VOLUME);
   PlayMusicStream(g->music);
 }
 
@@ -260,6 +261,8 @@ void UpdateEndScreen(Game *g) {
   Color color_d = g->winner ? DARKGREEN     : DARKBROWN;
 
   BeginDrawing();
+  if (g->winner) DrawPlayer(g);
+  else           DrawEnemies(g);
   ClearBackground(BACKGROUND_COLOR);
   DrawCenteredText(message, 80, sin((GetTime() - 0.2) * 13) * 4, 250 + cos((GetTime() - 0.2) * 5) * 5, color_d);
   DrawCenteredText(message, 80, sin(GetTime() * 13) * 3, 250 + cos(GetTime() * 5) * 4, color);
@@ -331,7 +334,7 @@ void ShootEnemiesBullets(Game *g) {
 }
 
 void ShootPlayerBullets(Game *g) {
-  if (IsKeyPressed(32) && !g->player.bullet.active) {
+  if (IsKeyDown(32) && !g->player.bullet.active) {
     g->player.bullet.pos = (Rectangle) { g->player.pos.x + g->player.pos.width / 2, g->player.pos.y + g->player.pos.height / 2, BULLET_WIDTH, BULLET_HEIGHT };
     g->player.bullet.active = 1;
     PlaySound(g->assets.s_shoot[RAND(0, 3)]);
