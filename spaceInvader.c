@@ -304,8 +304,8 @@ void DrawBullets(Game *g) {
 }
 
 void PlayerMovement(Game *g) {
-  if (IsKeyDown(262) || IsKeyDown(68) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
-  if (IsKeyDown(263) || IsKeyDown(65) && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
+  if ((IsKeyDown(262) || IsKeyDown(68)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
+  if ((IsKeyDown(263) || IsKeyDown(65)) && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
 }
 
 void EnemiesMovement(Game *g) {
