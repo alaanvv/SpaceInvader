@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <math.h>
+#include <time.h>
 
 #define RAND(min, max) (random() % (max - min) + min)
 
@@ -17,8 +18,11 @@
 #define SAVE_PATH "./saves.txt"
 #define NAME_SIZE 3
 #define VOLUME 0.05
+#define NUM_STARS 50
+#define STAR_SPEED 0.2
+#define STAR_SIZE 2
 
-#define BACKGROUND_COLOR    BLACK
+#define BACKGROUND_COLOR    (Color) { 10, 0, 10 }
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
 
@@ -75,6 +79,8 @@ void DrawGame(Game *g);
 void DrawEnemies(Game *g);
 void DrawPlayer(Game *g);
 void DrawBullets(Game *g);
+void DrawStars(Game *g);
+void MoveStars(Game *g);
 void PlayerMovement(Game *g);
 void EnemiesMovement(Game *g);
 void ShootEnemiesBullets(Game *g);
@@ -85,11 +91,13 @@ void DrawCenteredText(char* str, int font_size, int x, int y, Color color);
 void LoadAssets(Game *g);
 void UnloadAssets(Game *g);
 
-char saves[5][32] = { 0 };
+char  saves[5][32]  = { 0 };
+float stars[NUM_STARS][2];
 
 int main() {
   Game g;
 
+  srand(time(0));
   InitGame(&g);
   InitGameWindow(&g);
 
@@ -130,6 +138,11 @@ void InitGame(Game *g) {
   g->borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
   g->borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
 
+  for (int i = 0; i < NUM_STARS; i++) {
+    stars[i][0] = RAND(0, WINDOW_WIDTH);
+    stars[i][1] = RAND(0, WINDOW_HEIGHT);
+  }
+
   InitShips(g);
 }
 
@@ -149,7 +162,7 @@ void InitShips(Game *g) {
   g->player.color = WHITE;
   g->player.speed = 3;
   g->player.bullet.active = 0;
-  g->player.bullet.speed = 5;
+  g->player.bullet.speed = 10;
 
   g->enemy.pos = (Rectangle) { 0, 15, STD_WIDTH, STD_HEIGHT };
   g->enemy.color = RED;
@@ -241,6 +254,7 @@ void UpdateStartScreen(Game *g) {
 
   BeginDrawing();
   ClearBackground(BACKGROUND_COLOR);
+  DrawStars(g);
   DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
   DrawCenteredText(label_buf, 40, 0, 170, remaining ? WHITE : PURPLE);
@@ -264,6 +278,7 @@ void UpdateEndScreen(Game *g) {
   if (g->winner) DrawPlayer(g);
   else           DrawEnemies(g);
   ClearBackground(BACKGROUND_COLOR);
+  DrawStars(g);
   DrawCenteredText(message, 80, sin((GetTime() - 0.2) * 13) * 4, 250 + cos((GetTime() - 0.2) * 5) * 5, color_d);
   DrawCenteredText(message, 80, sin(GetTime() * 13) * 3, 250 + cos(GetTime() * 5) * 4, color);
   DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
@@ -273,6 +288,7 @@ void UpdateEndScreen(Game *g) {
 void DrawGame(Game *g) {
   BeginDrawing();
   ClearBackground(BACKGROUND_COLOR);
+  DrawStars(g);
   DrawBullets(g);
   DrawEnemies(g);
   DrawPlayer(g);
@@ -306,6 +322,19 @@ void DrawBullets(Game *g) {
   if (g->enemy.bullet.active)  DrawRectangleRec(g->enemy.bullet.pos,  ENEMY_BULLET_COLOR);
 }
 
+void DrawStars(Game *g) {
+  for (int i = 0; i < NUM_STARS; i++)
+    DrawRectangle(stars[i][0], stars[i][1], STAR_SIZE, STAR_SIZE, WHITE);
+  MoveStars(g);
+}
+
+void MoveStars(Game *g) {
+  for (int i = 0; i < NUM_STARS; i++) {
+    stars[i][1] += STAR_SPEED;
+    if (stars[i][1] > WINDOW_HEIGHT)
+      stars[i][1] = -3;
+  }
+}
 void PlayerMovement(Game *g) {
   if ((IsKeyDown(262) || IsKeyDown(68)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
   if ((IsKeyDown(263) || IsKeyDown(65)) && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
