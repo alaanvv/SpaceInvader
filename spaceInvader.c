@@ -91,7 +91,7 @@ void DrawCenteredText(char* str, int font_size, int x, int y, Color color);
 void LoadAssets(Game *g);
 void UnloadAssets(Game *g);
 
-char  saves[5][32]  = { 0 };
+char  saves[5][32] = { 0 };
 float stars[NUM_STARS][2];
 
 int main() {
@@ -116,11 +116,9 @@ int main() {
 void InitGame(Game *g) {
   // Create file if dont exist
   FILE* file = fopen(SAVE_PATH, "a");
-  fclose(file);
 
   // Read saves from file
   file = fopen(SAVE_PATH, "r");
-  char nick_buf[256];
 
   int i = 0;
   while (fgets(saves[i], 32, file) && i < 5) i++;
@@ -240,7 +238,7 @@ void UpdateStartScreen(Game *g) {
     PlaySound(g->assets.s_enter);
   }
 
-  // Input Label Buffer
+  // Label Buffer
   char label_buf[64];
   char empty[remaining + 1];
   memset(empty, ' ', remaining);
@@ -271,8 +269,8 @@ void UpdateEndScreen(Game *g) {
   }
 
   char* message = g->winner ? "YOU WON" : "YOU DIED";
-  Color color   = g->winner ? GREEN         : RED;
-  Color color_d = g->winner ? DARKGREEN     : DARKBROWN;
+  Color color   = g->winner ? GREEN     : RED;
+  Color color_d = g->winner ? DARKGREEN : DARKBROWN;
 
   BeginDrawing();
   if (g->winner) DrawPlayer(g);
