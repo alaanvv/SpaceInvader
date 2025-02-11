@@ -6,6 +6,10 @@
 
 ---
 
+- [Download](https://github.com/alaanvv/SpaceInvader/archive/refs/heads/main.zip)
+
+- Extract
+
 - Run
 ```bash
 gcc spaceInvader.c -o prog -lraylib -lm && ./prog
