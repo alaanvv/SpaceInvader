@@ -6,8 +6,10 @@
 #include <math.h>
 #include <time.h>
 
-#define RAND(min, max) (random() % (max - min) + min)
 #define MIN(x, y) (x < y ? x : y)
+#define MAX(x, y) (x > y ? x : y)
+#define CLAMP(x, y, z) (MAX(MIN(z, y), x))
+#define RAND(min, max) (random() % (max - min) + min)
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -29,6 +31,14 @@
 #define ENEMY_BULLET_COLOR  GREEN
 
 #define PLAYER_SPEED 4
+
+typedef enum {
+  START_SCREEN, DIFFICULTY_SCREEN, GAME_SCREEN, END_SCREEN
+} Stage;
+
+typedef enum {
+  NORMAL, HARD, HARDCORE
+} Difficulty;
 
 typedef struct {
   int active, timer, speed;
@@ -56,10 +66,6 @@ typedef struct {
   Sound s_key, s_undo, s_enter, s_hit, s_nop, s_death, s_shoot[4];
 } Assets;
 
-typedef enum {
-  START_SCREEN, GAME_SCREEN, END_SCREEN
-} Stage;
-
 typedef struct {
   Enemy enemy;
   Player player;
@@ -67,6 +73,7 @@ typedef struct {
   Assets assets;
   Music music;
   Stage stage;
+  Difficulty difficulty;
   int winner;
   char nick[11];
   int pts;
@@ -84,6 +91,7 @@ void FinishGame(Game *g);
 void FinishGameWindow(Game *g);
 void UpdateGame(Game *g);
 void UpdateStartScreen(Game *g);
+void UpdateDifficultyScreen(Game *g);
 void UpdateEndScreen(Game *g);
 void DrawGame(Game *g);
 void DrawEnemies(Game *g);
@@ -119,9 +127,10 @@ int main() {
   while (!WindowShouldClose()) {
     UpdateMusicStream(g.music);
 
-    if      (g.stage == START_SCREEN) UpdateStartScreen(&g);
-    else if (g.stage == END_SCREEN)   UpdateEndScreen(&g);
-    else                              UpdateGame(&g);
+    if      (g.stage == START_SCREEN)      UpdateStartScreen(&g);
+    else if (g.stage == DIFFICULTY_SCREEN) UpdateDifficultyScreen(&g);
+    else if (g.stage == END_SCREEN)        UpdateEndScreen(&g);
+    else                                   UpdateGame(&g);
   }
 
   FinishGameWindow(&g);
@@ -151,6 +160,7 @@ void InitGame(Game *g) {
   g->winner = 0;
   g->nick[0] = '\0';
   g->pts = 0;
+  g->difficulty = NORMAL;
 
   g->borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
   g->borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
@@ -266,12 +276,7 @@ void UpdateStartScreen(Game *g) {
 
   if (IsKeyPressed(KEY_ENTER)) {
     if (remaining) PlaySound(g->assets.s_nop);
-    else {
-      g->stage = GAME_SCREEN;
-      anim_player_start.running = 1;
-      anim_player_start.start = GetTime();
-      PlaySound(g->assets.s_enter);
-    }
+    else g->stage = DIFFICULTY_SCREEN;
   }
 
   // Label Buffer
@@ -295,6 +300,75 @@ void UpdateStartScreen(Game *g) {
   if (!remaining) DrawCenteredText(nick_buf,  40, sin((GetTime() - 0.2) * 13) * 3, 220 + cos((GetTime() - 0.2) * 5) * 4, DARKPURPLE);
   DrawCenteredText(nick_buf,  40, sin(GetTime() * 13) * 3, 220 + cos(GetTime() * 5) * 4, remaining ? WHITE : PURPLE);
   for (int i = 0; i < 5; i++) DrawCenteredText(rank_toggle ? rank[i] : saves[i], 50, 0, 300 + 55 * i, PURPLE);
+  EndDrawing();
+}
+
+void UpdateDifficultyScreen(Game *g) {
+  static Difficulty selected = NORMAL;
+
+  if (IsKeyPressed(264) || IsKeyPressed(83)) {
+    if (selected == HARDCORE) PlaySound(g->assets.s_nop);
+    else {
+      selected++;
+      PlaySound(g->assets.s_key);
+    }
+  }
+
+  if (IsKeyPressed(265) || IsKeyPressed(87)) {
+    if (selected == 0) PlaySound(g->assets.s_nop);
+    else {
+      selected--;
+      PlaySound(g->assets.s_key);
+    }
+  }
+
+  if (IsKeyPressed(KEY_ENTER)) {
+    g->stage = GAME_SCREEN;
+    g->difficulty = selected;
+    anim_player_start.running = 1;
+    anim_player_start.start = GetTime();
+    PlaySound(g->assets.s_enter);
+  }
+
+  char _buffer[64], buffer[64];
+
+  BeginDrawing();
+  ClearBackground(BACKGROUND_COLOR);
+  DrawStars(g);
+  DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
+  DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
+
+  for (int i = 0; i <= HARDCORE; i++) {
+    Color color, color_d;
+    buffer[0]  = '\0';
+    _buffer[0] = '\0';
+
+    switch (i) {
+      case NORMAL:
+        strcat(_buffer, "NORMAL");
+        color   = WHITE;
+        color_d = GRAY;
+        break;
+      case HARD:
+        strcat(_buffer, "HARD");
+        color   = PURPLE;
+        color_d = DARKPURPLE;
+        break;
+      case HARDCORE:
+        strcat(_buffer, "HARDCORE");
+        color   = RED;
+        color_d = DARKBROWN;
+        break;
+    }
+
+    sprintf(buffer, selected == i ? "> %s <" : "%s", _buffer);
+    if (selected == i) {
+      DrawCenteredText(buffer, 55, sin((GetTime() - 0.2) * 9 * (i + 1)) * 4, 200 + 100 * i + cos((GetTime() - 0.2) * 5 * (i + 1)) * 3, color_d);
+      DrawCenteredText(buffer, 55, sin((GetTime())       * 9 * (i + 1)) * 4, 200 + 100 * i + cos((GetTime())       * 5 * (i + 1)) * 3, color);
+    }
+    else DrawCenteredText(buffer, selected == i ? 55 : 50, 0, 200 + 100 * i, color);
+  }
+
   EndDrawing();
 }
 
@@ -450,7 +524,7 @@ int PlayerBulletCollision(Game *g) {
     anim_player_end.start = GetTime();
     g->stage = END_SCREEN;
     PlaySound(g->assets.s_hit);
-    g->pts = 100;
+    g->pts = 100 * (g->difficulty + 1);
     FinishGame(g);
     return 1;
   }
@@ -466,22 +540,33 @@ void DrawCenteredText(char* str, int font_size, int x, int y, Color color) {
 }
 
 void LoadAssets(Game *g) {
-  g->assets.enemy   = LoadTexture("assets/enemy.png");
-  g->assets.player  = LoadTexture("assets/player.png");
-  g->assets.s_key   = LoadSound("assets/key.wav");
-  g->assets.s_undo  = LoadSound("assets/undo.wav");
-  g->assets.s_enter = LoadSound("assets/enter.wav");
-  g->assets.s_hit   = LoadSound("assets/hit.wav");
-  g->assets.s_nop   = LoadSound("assets/nop.wav");
-  g->assets.s_death = LoadSound("assets/death.wav");
-  g->assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
-  g->assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
-  g->assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
-  g->assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
+  g->assets.enemy       = LoadTexture("assets/enemy.png");
+  g->assets.player      = LoadTexture("assets/player.png");
+  g->assets.s_key       = LoadSound("assets/key.wav");
+  g->assets.s_undo      = LoadSound("assets/undo.wav");
+  g->assets.s_enter     = LoadSound("assets/enter.wav");
+  g->assets.s_hit       = LoadSound("assets/hit.wav");
+  g->assets.s_nop       = LoadSound("assets/nop.wav");
+  g->assets.s_death     = LoadSound("assets/death.wav");
+  g->assets.s_shoot[0]  = LoadSound("assets/shoot_1.wav");
+  g->assets.s_shoot[1]  = LoadSound("assets/shoot_2.wav");
+  g->assets.s_shoot[2]  = LoadSound("assets/shoot_3.wav");
+  g->assets.s_shoot[3]  = LoadSound("assets/shoot_4.wav");
   g->enemy.bullet.sound = LoadSound("assets/shoot.wav");
 }
 
 void UnloadAssets(Game *g) {
   UnloadTexture(g->assets.player);
   UnloadTexture(g->assets.enemy);
+  UnloadSound(g->assets.s_key);
+  UnloadSound(g->assets.s_undo);
+  UnloadSound(g->assets.s_enter);
+  UnloadSound(g->assets.s_hit);
+  UnloadSound(g->assets.s_nop);
+  UnloadSound(g->assets.s_death);
+  UnloadSound(g->assets.s_shoot[0]);
+  UnloadSound(g->assets.s_shoot[1]);
+  UnloadSound(g->assets.s_shoot[2]);
+  UnloadSound(g->assets.s_shoot[3]);
+  UnloadSound(g->enemy.bullet.sound);
 }
