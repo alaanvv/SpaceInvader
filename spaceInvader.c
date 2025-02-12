@@ -7,6 +7,7 @@
 #include <time.h>
 
 #define RAND(min, max) (random() % (max - min) + min)
+#define MIN(x, y) (x < y ? x : y)
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -17,37 +18,37 @@
 
 #define SAVE_PATH "./saves.txt"
 #define NAME_SIZE 3
-#define VOLUME 0.05
+#define VOLUME 0.5
 #define NUM_STARS 50
-#define STAR_SPEED 0.2
+#define STAR_SPEED 0.3
 #define STAR_SIZE 2
 
 #define BACKGROUND_COLOR    (Color) { 10, 0, 10 }
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
 
-typedef struct Bullet {
+typedef struct {
   int active, timer, speed;
   Rectangle pos;
   Color color;
   Sound sound;
 } Bullet;
 
-typedef struct Enemy {
+typedef struct {
   int speed, direction;
   Rectangle pos;
   Color  color;
   Bullet bullet;
 } Enemy;
 
-typedef struct Player {
+typedef struct {
   Rectangle pos;
   Color  color;
   Bullet bullet;
   int speed;
 } Player;
 
-typedef struct Assets {
+typedef struct {
   Texture2D player, enemy;
   Sound s_key, s_undo, s_enter, s_hit, s_shoot[4];
 } Assets;
@@ -56,7 +57,7 @@ typedef enum {
   START_SCREEN, GAME_SCREEN, END_SCREEN
 } Stage;
 
-typedef struct Game {
+typedef struct {
   Enemy enemy;
   Player player;
   Rectangle borders[4];
@@ -66,6 +67,11 @@ typedef struct Game {
   int winner;
   char nick[11];
 } Game;
+
+typedef struct {
+  int running;
+  float start;
+} Animation;
 
 void InitGame(Game *g);
 void InitGameWindow(Game *g);
@@ -93,6 +99,9 @@ void UnloadAssets(Game *g);
 
 char  saves[5][32] = { 0 };
 float stars[NUM_STARS][2];
+
+Animation anim_player_end   = { 0, 0 };
+Animation anim_player_start = { 0, 0 };
 
 int main() {
   Game g;
@@ -150,7 +159,7 @@ void InitGameWindow(Game *g) {
   SetTargetFPS(60);
   LoadAssets(g);
   g->music = LoadMusicStream("assets/soundtrack.mp3");
-  SetMusicVolume(g->music, VOLUME * 3);
+  SetMusicVolume(g->music, VOLUME / 5);
   SetMasterVolume(VOLUME);
   PlayMusicStream(g->music);
 }
@@ -235,6 +244,8 @@ void UpdateStartScreen(Game *g) {
   }
   if (!remaining && IsKeyPressed(KEY_ENTER)) {
     g->stage = GAME_SCREEN;
+    anim_player_start.running = 1;
+    anim_player_start.start = GetTime();
     PlaySound(g->assets.s_enter);
   }
 
@@ -266,6 +277,17 @@ void UpdateEndScreen(Game *g) {
   if (IsKeyPressed(KEY_ENTER)) {
     InitGame(g);
     PlaySound(g->assets.s_enter);
+    return;
+  }
+
+  if (anim_player_end.running) {
+    float x = (GetTime() - anim_player_end.start) / 2;
+    g->player.pos.y = WINDOW_HEIGHT - STD_HEIGHT - 10 - x * x * WINDOW_HEIGHT;
+    if (x >= 1) anim_player_end.running = 0;
+  }
+
+  if (!g->winner) {
+    EnemiesMovement(g);
   }
 
   char* message = g->winner ? "YOU WON" : "YOU DIED";
@@ -310,8 +332,16 @@ void DrawEnemies(Game *g) {
 }
 
 void DrawPlayer(Game *g) {
+  int y = g->player.pos.y;
+
+  if (anim_player_start.running) {
+    float x = MIN(1, (GetTime() - anim_player_start.start));
+    y += (x - 1) * (x - 1) * 50;
+    if (x >= 1) anim_player_start.running = 0;
+  }
+
   Rectangle frame_rec = { 0, 0, 32, 32 };
-  Rectangle pos_rec   = { g->player.pos.x, g->player.pos.y, 32, 32 };
+  Rectangle pos_rec   = { g->player.pos.x, y, 32, 32 };
   DrawTexturePro(g->assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
 }
 
@@ -389,6 +419,8 @@ int EnemiesBulletCollision(Game *g) {
 int PlayerBulletCollision(Game *g) {
   if (CheckCollisionRecs(g->enemy.pos, g->player.bullet.pos)) {
     g->winner = 1;
+    anim_player_end.running = 1;
+    anim_player_end.start = GetTime();
     g->stage = END_SCREEN;
     PlaySound(g->assets.s_hit);
     FinishGame(g);
