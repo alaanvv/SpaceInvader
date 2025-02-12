@@ -40,7 +40,8 @@ typedef enum {
 
 typedef struct {
   Rectangle pos, bullet;
-  int hp, speed, bullet_speed, shoot_timer, shooting;
+  int hp, shooting;
+  float last_shoot, shoot_timer, speed, bullet_speed;
 } Ship;
 
 typedef struct {
@@ -110,6 +111,8 @@ Animation transition = { 0, 0, 0.5 };
 Stage transition_to;
 
 Color background_color = BACKGROUND_COLOR;
+float star_speed = STAR_SPEED;
+
 int stage_in_event = 0;
 int enemy_direction = 1;
 int player_immune = 0;
@@ -157,6 +160,7 @@ void InitGame(Game *g) {
   // ---
 
   background_color = BACKGROUND_COLOR;
+  star_speed = STAR_SPEED;
   g->nick[0] = '\0';
   g->winner = 0;
   g->pts = 0;
@@ -231,10 +235,15 @@ void WriteRank(Game *g) {
 void UpdateGame(Game *g) {
   if (StageInEvent()) {
     StartAnimation(&a_player_inn);
-    g->enemy.shoot_timer = GetTime();
+    g->enemy.last_shoot = GetTime();
 
+    // Adjusts based on mode
     g->player.hp = g->mode == NORMAL ? 3 : g->mode == HARD ? 2 : 1;
     background_color.r += g->mode * 3;
+    g->enemy.speed *= 1 + g->mode * 0.3;
+    g->enemy.bullet_speed *= 1 + g->mode * 0.5;
+    g->enemy.shoot_timer = g->mode == NORMAL ? 3 : g->mode == HARD ? 1 : 0.1;
+    star_speed *= 1 + g->mode;
   }
 
   if (player_immune) player_immune--;
@@ -458,7 +467,7 @@ void DrawStars(Game *g) {
 
 void MoveStars(Game *g) {
   for (int i = 0; i < NUM_STARS; i++) {
-    stars[i][1] += STAR_SPEED;
+    stars[i][1] += star_speed;
     if (stars[i][1] > WINDOW_HEIGHT)
       stars[i][1] = -STAR_SIZE;
   }
@@ -483,11 +492,11 @@ void EnemyShoot(Game *g) {
     return;
   }
 
-  if (TimeSince(g->enemy.shoot_timer) < 3) return;
+  if (TimeSince(g->enemy.last_shoot) < g->enemy.shoot_timer) return;
   g->enemy.bullet.x = g->enemy.pos.x + g->enemy.pos.width  / 2;
   g->enemy.bullet.y = g->enemy.pos.y + g->enemy.pos.height / 2;
   g->enemy.shooting = 1;
-  g->enemy.shoot_timer = GetTime();
+  g->enemy.last_shoot = GetTime();
   PlaySound(g->assets.s_e_shoot);
 }
 
