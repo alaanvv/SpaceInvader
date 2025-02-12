@@ -36,11 +36,11 @@ typedef enum {
 
 typedef enum {
   NORMAL, HARD, HARDCORE
-} Difficulty;
+} Mode;
 
 typedef struct {
   Rectangle pos, bullet;
-  int speed, bullet_speed, shoot_timer, shooting;
+  int hp, speed, bullet_speed, shoot_timer, shooting;
 } Ship;
 
 typedef struct {
@@ -51,7 +51,7 @@ typedef struct {
 } Assets;
 
 typedef struct {
-  Difficulty difficulty;
+  Mode mode;
   Rectangle borders[4];
   Ship player, enemy;
   Assets assets;
@@ -109,8 +109,10 @@ Animation a_player_inn = { 0, 0, 1 };
 Animation transition = { 0, 0, 0.5 };
 Stage transition_to;
 
+Color background_color = BACKGROUND_COLOR;
 int stage_in_event = 0;
 int enemy_direction = 1;
+int player_immune = 0;
 
 // ---
 
@@ -154,7 +156,7 @@ void InitGame(Game *g) {
 
   // ---
 
-  g->difficulty = NORMAL;
+  background_color = BACKGROUND_COLOR;
   g->nick[0] = '\0';
   g->winner = 0;
   g->pts = 0;
@@ -174,13 +176,14 @@ void InitGame(Game *g) {
   g->player.speed = PLAYER_SPEED;
   g->player.shooting = 0;
   g->player.bullet_speed = 10;
+  player_immune = 0;
 
   g->enemy.pos    = (Rectangle) { 0, 15, SHIP_WIDTH, SHIP_HEIGHT };
   g->enemy.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
   g->enemy.speed = 3;
-  enemy_direction = 1;
   g->enemy.shooting = 0;
   g->enemy.bullet_speed = 5;
+  enemy_direction = 1;
 }
 
 void InitGameWindow(Game *g) {
@@ -229,7 +232,12 @@ void UpdateGame(Game *g) {
   if (StageInEvent()) {
     StartAnimation(&a_player_inn);
     g->enemy.shoot_timer = GetTime();
+
+    g->player.hp = g->mode == NORMAL ? 3 : g->mode == HARD ? 2 : 1;
+    background_color.r += g->mode * 3;
   }
+
+  if (player_immune) player_immune--;
 
   EnemiesMovement(g);
   PlayerMovement(g);
@@ -285,7 +293,7 @@ void UpdateStartScreen(Game *g) {
   if (strlen(g->nick) < NAME_SIZE) strcat(nick_buf, "_");
 
   BeginDrawing();
-  ClearBackground(BACKGROUND_COLOR);
+  ClearBackground(background_color);
   DrawStars(g);
   DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
@@ -298,7 +306,7 @@ void UpdateStartScreen(Game *g) {
 }
 
 void UpdateModeScreen(Game *g) {
-  static Difficulty selected = NORMAL;
+  static Mode selected = NORMAL;
 
   if (IsKeyPressed(264) || IsKeyPressed(83)) {
     if (selected == HARDCORE) PlaySound(g->assets.s_nop);
@@ -318,14 +326,14 @@ void UpdateModeScreen(Game *g) {
 
   if (IsKeyPressed(KEY_ENTER)) {
     StartTransition(GAME_SCREEN);
-    g->difficulty = selected;
+    g->mode = selected;
     PlaySound(g->assets.s_enter);
   }
 
   char _buffer[32], buffer[32];
 
   BeginDrawing();
-  ClearBackground(BACKGROUND_COLOR);
+  ClearBackground(background_color);
   DrawStars(g);
   DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
@@ -385,20 +393,20 @@ void UpdateEndScreen(Game *g) {
   Color color_d = g->winner ? DARKGREEN : DARKBROWN;
 
   BeginDrawing();
-  if (g->winner) DrawPlayer(g);
-  else           DrawEnemies(g);
-  ClearBackground(BACKGROUND_COLOR);
+  ClearBackground(background_color);
   DrawStars(g);
   DrawCenteredText(message, 80, Shake(-0.2, 13, 4), 250 + Shake(-0.2, 5, 5), color_d);
   DrawCenteredText(message, 80, Shake(0,    13, 4), 250 + Shake(0,    5, 5), color);
   DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
+  if (g->winner) DrawPlayer(g);
+  else           DrawEnemies(g);
   DrawTransition(g);
   EndDrawing();
 }
 
 void DrawGame(Game *g) {
   BeginDrawing();
-  ClearBackground(BACKGROUND_COLOR);
+  ClearBackground(background_color);
   DrawStars(g);
   DrawBullets(g);
   DrawEnemies(g);
@@ -433,7 +441,8 @@ void DrawPlayer(Game *g) {
 
   Rectangle frame_rec = { 0, 0, 32, 32 };
   Rectangle pos_rec   = { g->player.pos.x, y, 32, 32 };
-  DrawTexturePro(g->assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+  Color color = { 255, 255, 255, player_immune ? 127 : 255 };
+  DrawTexturePro(g->assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
 }
 
 void DrawBullets(Game *g) {
@@ -497,11 +506,17 @@ void PlayerShoot(Game *g) {
 }
 
 void EnemiesBulletCollision(Game *g) {
-  if (CheckCollisionRecs(g->player.pos, g->enemy.bullet)) {
-    SetStage(g, END_SCREEN);
-    PlaySound(g->assets.s_death);
-    g->pts = 0;
+  if (!player_immune && CheckCollisionRecs(g->player.pos, g->enemy.bullet)) {
     g->enemy.shooting = 0;
+    player_immune = 30;
+    background_color.r += 3;
+    if (--g->player.hp)
+      PlaySound(g->assets.s_hit);
+    else {
+      SetStage(g, END_SCREEN);
+      PlaySound(g->assets.s_death);
+      g->pts = 0;
+    }
   }
 
   if (CheckCollisionRecs(g->enemy.bullet, g->borders[1]))
@@ -514,7 +529,7 @@ void PlayerBulletCollision(Game *g) {
     StartAnimation(&a_player_out);
     SetStage(g, END_SCREEN);
     PlaySound(g->assets.s_hit);
-    g->pts = 100 * (g->difficulty + 1);
+    g->pts = 100 * (g->mode + 1);
     g->player.shooting = 0;
   }
 
