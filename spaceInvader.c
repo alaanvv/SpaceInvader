@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <math.h>
-#include <time.h>
 
 #define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
@@ -15,8 +14,8 @@
 #define WINDOW_HEIGHT 600
 #define BULLET_WIDTH  10
 #define BULLET_HEIGHT 15
-#define STD_WIDTH     32
-#define STD_HEIGHT    32
+#define SHIP_WIDTH    32
+#define SHIP_HEIGHT   32
 #define SAVE_PATH "./save.txt"
 #define RANK_PATH "./rank.txt"
 #define NAME_SIZE 3
@@ -57,23 +56,20 @@ typedef struct {
   Ship player, enemy;
   Assets assets;
   Stage stage;
-  int winner;
-  char nick[11];
-  int pts;
+  char nick[3];
+  int winner, pts;
 } Game;
 
 typedef struct {
   int running;
-  float start;
+  float start, duration;
 } Animation;
 
 // ---
 
 void  InitGame(Game *g);
 void  InitGameWindow(Game *g);
-void  InitShips(Game *g);
-void  FinishGame(Game *g);
-void  FinishGameWindow(Game *g);
+void  WriteRank(Game *g);
 void  UpdateGame(Game *g);
 void  UpdateStartScreen(Game *g);
 void  UpdateModeScreen(Game *g);
@@ -86,10 +82,11 @@ void  DrawStars(Game *g);
 void  MoveStars(Game *g);
 void  PlayerMovement(Game *g);
 void  EnemiesMovement(Game *g);
-void  ShootEnemiesBullets(Game *g);
-void  ShootPlayerBullets(Game *g);
+void  EnemyShoot(Game *g);
+void  PlayerShoot(Game *g);
 void  EnemiesBulletCollision(Game *g);
 void  PlayerBulletCollision(Game *g);
+int   StageInEvent();
 void  SetStage(Game *g, Stage stage);
 float Shake(float x, float speed, float intensity);
 float TimeSince(float x);
@@ -97,31 +94,30 @@ void  DrawCenteredText(char* str, int font_size, int x, int y, Color color);
 void  LoadAssets(Game *g);
 void  UnloadAssets(Game *g);
 void  StartAnimation(Animation* anim);
+float AnimationKeyFrame(Animation* anim);
 void  StartTransition(Stage to);
 void  DrawTransition(Game *g);
 
 // ---
 
-char saves[5][32] = { 0 };
-char  rank[5][32] = { 0 };
+char saves[5][16] = { 0 };
+char  rank[5][16] = { 0 };
 float stars[NUM_STARS][2];
 
-Animation a_player_out = { 0, 0 };
-Animation a_player_inn = { 0, 0 };
-
-Animation transition = { 0, 0 };
-float transition_time = 0.5;
-Stage transition_into;
+Animation a_player_out = { 0, 0, 2 };
+Animation a_player_inn = { 0, 0, 1 };
+Animation transition = { 0, 0, 0.5 };
+Stage transition_to;
 
 int stage_in_event = 0;
-int enemy_direction = 0;
+int enemy_direction = 1;
 
 // ---
 
 int main() {
   Game g;
 
-  srand(time(0));
+  srand((long) &g);
   InitGameWindow(&g);
   SetStage(&g, START_SCREEN);
 
@@ -131,10 +127,11 @@ int main() {
     if      (g.stage == START_SCREEN) UpdateStartScreen(&g);
     else if (g.stage == MODE_SCREEN)  UpdateModeScreen(&g);
     else if (g.stage == END_SCREEN)   UpdateEndScreen(&g);
-    else                              UpdateGame(&g);
+    else if (g.stage == GAME_SCREEN)  UpdateGame(&g);
   }
 
-  FinishGameWindow(&g);
+  UnloadAssets(&g);
+  CloseWindow();
   return 0;
 }
 
@@ -157,10 +154,10 @@ void InitGame(Game *g) {
 
   // ---
 
-  g->winner = 0;
-  g->nick[0] = '\0';
-  g->pts = 0;
   g->difficulty = NORMAL;
+  g->nick[0] = '\0';
+  g->winner = 0;
+  g->pts = 0;
 
   g->borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
   g->borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
@@ -172,7 +169,18 @@ void InitGame(Game *g) {
     stars[i][1] = RAND(0, WINDOW_HEIGHT);
   }
 
-  InitShips(g);
+  g->player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
+  g->player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+  g->player.speed = PLAYER_SPEED;
+  g->player.shooting = 0;
+  g->player.bullet_speed = 10;
+
+  g->enemy.pos    = (Rectangle) { 0, 15, SHIP_WIDTH, SHIP_HEIGHT };
+  g->enemy.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+  g->enemy.speed = 3;
+  enemy_direction = 1;
+  g->enemy.shooting = 0;
+  g->enemy.bullet_speed = 5;
 }
 
 void InitGameWindow(Game *g) {
@@ -180,26 +188,12 @@ void InitGameWindow(Game *g) {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space Invaders");
   SetTargetFPS(60);
   LoadAssets(g);
-  SetMusicVolume(g->assets.music, VOLUME / 5);
+  SetMusicVolume(g->assets.music, VOLUME * 0.3);
   SetMasterVolume(VOLUME);
   PlayMusicStream(g->assets.music);
 }
 
-void InitShips(Game *g) {
-  g->player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - STD_WIDTH / 2.0, WINDOW_HEIGHT - STD_HEIGHT - 10, STD_WIDTH, STD_HEIGHT };
-  g->player.speed = PLAYER_SPEED;
-  g->player.shooting = 0;
-  g->player.bullet_speed = 10;
-
-  g->enemy.pos = (Rectangle) { 0, 15, STD_WIDTH, STD_HEIGHT };
-  g->enemy.speed = 3;
-  enemy_direction = 1; // 0 - Left; 1 - Right
-  g->enemy.shooting = 0;
-  g->enemy.shoot_timer = GetTime();
-  g->enemy.bullet_speed = 5;
-}
-
-void FinishGame(Game *g) {
+void WriteRank(Game *g) {
   char new_save[32];
   sprintf(new_save, "%s %d\n", g->nick, g->pts);
 
@@ -231,35 +225,27 @@ void FinishGame(Game *g) {
   fclose(f_rank);
 }
 
-void FinishGameWindow(Game *g) {
-  UnloadAssets(g);
-  CloseWindow();
-}
-
 void UpdateGame(Game *g) {
-  if (!stage_in_event) {
-    stage_in_event = 1;
+  if (StageInEvent()) {
     StartAnimation(&a_player_inn);
+    g->enemy.shoot_timer = GetTime();
   }
 
   EnemiesMovement(g);
   PlayerMovement(g);
-  ShootEnemiesBullets(g);
-  ShootPlayerBullets(g);
+  EnemyShoot(g);
+  PlayerShoot(g);
   DrawGame(g);
 }
 
 void UpdateStartScreen(Game *g) {
-  if (!stage_in_event) {
-    stage_in_event = 1;
-    InitGame(g);
-  }
+  if (StageInEvent()) InitGame(g);
 
+  static int rank_toggle = 0;
   int remaining = NAME_SIZE - strlen(g->nick);
   int key = toupper(GetCharPressed());
-  static int rank_toggle = 0;
 
-  if (key > 31 && key < 126) {
+  if (key >= 65 && key <= 90 || key >= 97 && key <= 122) {
     if (!remaining) PlaySound(g->assets.s_nop);
     else {
       g->nick[strlen(g->nick) + 1] = '\0';
@@ -283,9 +269,7 @@ void UpdateStartScreen(Game *g) {
 
   if (IsKeyPressed(KEY_ENTER)) {
     if (remaining) PlaySound(g->assets.s_nop);
-    else {
-      StartTransition(MODE_SCREEN);
-    }
+    else StartTransition(MODE_SCREEN);
   }
 
   // Label Buffer
@@ -338,7 +322,7 @@ void UpdateModeScreen(Game *g) {
     PlaySound(g->assets.s_enter);
   }
 
-  char _buffer[64], buffer[64];
+  char _buffer[32], buffer[32];
 
   BeginDrawing();
   ClearBackground(BACKGROUND_COLOR);
@@ -382,10 +366,7 @@ void UpdateModeScreen(Game *g) {
 }
 
 void UpdateEndScreen(Game *g) {
-  if (!stage_in_event) {
-    stage_in_event = 1;
-    FinishGame(g);
-  }
+  if (StageInEvent()) WriteRank(g);
 
   if (IsKeyPressed(KEY_ENTER)) {
     StartTransition(START_SCREEN);
@@ -393,14 +374,11 @@ void UpdateEndScreen(Game *g) {
   }
 
   if (a_player_out.running) {
-    float x = (TimeSince(a_player_out.start)) / 2;
-    g->player.pos.y = WINDOW_HEIGHT - STD_HEIGHT - 10 - x * x * WINDOW_HEIGHT;
-    if (x >= 1) a_player_out.running = 0;
+    float x = AnimationKeyFrame(&a_player_out);
+    g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - x / a_player_out.duration * x / a_player_out.duration * WINDOW_HEIGHT;
   }
 
-  if (!g->winner) {
-    EnemiesMovement(g);
-  }
+  if (!g->winner) EnemiesMovement(g);
 
   char* message = g->winner ? "YOU WON" : "YOU DIED";
   Color color   = g->winner ? GREEN     : RED;
@@ -449,9 +427,8 @@ void DrawPlayer(Game *g) {
   int y = g->player.pos.y;
 
   if (a_player_inn.running) {
-    float x = MIN(1, (TimeSince(a_player_inn.start)));
-    y += (x - 1) * (x - 1) * 50;
-    if (x >= 1) a_player_inn.running = 0;
+    float x = AnimationKeyFrame(&a_player_inn);
+    y += pow(x - 1, 2) * 50;
   }
 
   Rectangle frame_rec = { 0, 0, 32, 32 };
@@ -474,47 +451,49 @@ void MoveStars(Game *g) {
   for (int i = 0; i < NUM_STARS; i++) {
     stars[i][1] += STAR_SPEED;
     if (stars[i][1] > WINDOW_HEIGHT)
-      stars[i][1] = -3;
+      stars[i][1] = -STAR_SIZE;
   }
 }
+
 void PlayerMovement(Game *g) {
   if ((IsKeyDown(262) || IsKeyDown(68)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
   if ((IsKeyDown(263) || IsKeyDown(65)) && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
 }
 
 void EnemiesMovement(Game *g) {
-  if      (CheckCollisionRecs(g->enemy.pos, g->borders[2])) enemy_direction = 1;
-  else if (CheckCollisionRecs(g->enemy.pos, g->borders[3])) enemy_direction = 0;
+  if      (CheckCollisionRecs(g->enemy.pos, g->borders[2])) enemy_direction =  1;
+  else if (CheckCollisionRecs(g->enemy.pos, g->borders[3])) enemy_direction = -1;
 
-  if (enemy_direction) g->enemy.pos.x += g->enemy.speed;
-  else                 g->enemy.pos.x -= g->enemy.speed;
+  g->enemy.pos.x += g->enemy.speed * enemy_direction;
 }
 
-void ShootEnemiesBullets(Game *g) {
-  if (!g->enemy.shooting && TimeSince(g->enemy.shoot_timer) > 3) {
-    g->enemy.bullet = (Rectangle) { g->enemy.pos.x + g->enemy.pos.width/2, g->enemy.pos.y + g->enemy.pos.height / 2, BULLET_WIDTH, BULLET_HEIGHT };
-    g->enemy.shooting = 1;
-    g->enemy.shoot_timer = GetTime();
-    PlaySound(g->assets.s_e_shoot);
-  }
-
+void EnemyShoot(Game *g) {
   if (g->enemy.shooting) {
     EnemiesBulletCollision(g);
     g->enemy.bullet.y += g->enemy.bullet_speed;
+    return;
   }
+
+  if (TimeSince(g->enemy.shoot_timer) < 3) return;
+  g->enemy.bullet.x = g->enemy.pos.x + g->enemy.pos.width  / 2;
+  g->enemy.bullet.y = g->enemy.pos.y + g->enemy.pos.height / 2;
+  g->enemy.shooting = 1;
+  g->enemy.shoot_timer = GetTime();
+  PlaySound(g->assets.s_e_shoot);
 }
 
-void ShootPlayerBullets(Game *g) {
-  if (IsKeyDown(32) && !g->player.shooting) {
-    g->player.bullet = (Rectangle) { g->player.pos.x + g->player.pos.width / 2, g->player.pos.y + g->player.pos.height / 2, BULLET_WIDTH, BULLET_HEIGHT };
-    g->player.shooting = 1;
-    PlaySound(g->assets.s_shoot[RAND(0, 3)]);
-  }
-
+void PlayerShoot(Game *g) {
   if (g->player.shooting) {
     PlayerBulletCollision(g);
     g->player.bullet.y -= g->player.bullet_speed;
+    return;
   }
+
+  if (!IsKeyDown(32)) return;
+  g->player.bullet.x = g->player.pos.x + g->player.pos.width  / 2;
+  g->player.bullet.y = g->player.pos.y + g->player.pos.height / 2;
+  g->player.shooting = 1;
+  PlaySound(g->assets.s_shoot[RAND(0, 3)]);
 }
 
 void EnemiesBulletCollision(Game *g) {
@@ -543,10 +522,20 @@ void PlayerBulletCollision(Game *g) {
     g->player.shooting = 0;
 }
 
+// Stage
+
+int  StageInEvent() {
+  int tmp = stage_in_event;
+  if (!tmp) stage_in_event = 1;
+  return !tmp;
+}
+
 void SetStage(Game *g, Stage stage) {
   g->stage = stage;
   stage_in_event = 0;
 }
+
+// Utils
 
 float Shake(float offset, float speed, float intensity) {
   return sin((GetTime() + offset) * speed) * intensity;
@@ -559,6 +548,8 @@ float TimeSince(float x) {
 void DrawCenteredText(char* str, int font_size, int x, int y, Color color) {
   DrawText(str, WINDOW_WIDTH / 2 - MeasureText(str, font_size) / 2 + x, y, font_size, color);
 }
+
+// Assets
 
 void LoadAssets(Game *g) {
   g->assets.music      = LoadMusicStream("assets/soundtrack.mp3");
@@ -601,18 +592,22 @@ void StartAnimation(Animation* anim) {
   anim->running = 1;
 }
 
+float AnimationKeyFrame(Animation* anim) {
+  float x = (TimeSince(anim->start));
+  if (x >= anim->duration) anim->running = 0;
+  return x;
+}
+
 // Transition
 
 void StartTransition(Stage to) {
   StartAnimation(&transition);
-  transition_into = to;
+  transition_to = to;
 }
 
 void DrawTransition(Game *g) {
   if (!transition.running) return;
-  float x = TimeSince(transition.start);
-  if (x > transition_time) transition.running = 0;
-  else if (x >= transition_time / 2 && g->stage != transition_into) SetStage(g, transition_into);
-  DrawRectangle(-WINDOW_WIDTH + x / transition_time * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+  float x = AnimationKeyFrame(&transition);
+  if (x >= transition.duration / 2 && g->stage != transition_to) SetStage(g, transition_to);
+  DrawRectangle(-WINDOW_WIDTH + x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
 }
-
