@@ -284,9 +284,12 @@ void UpdateStartScreen(Game *g) {
     }
   }
 
-  if (IsKeyPressed(KEY_ENTER)) {
+  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     if (remaining) PlaySound(g->assets.s_nop);
-    else StartTransition(MODE_SCREEN);
+    else {
+      StartTransition(MODE_SCREEN);
+      PlaySound(g->assets.s_enter);
+    }
   }
 
   // Label Buffer
@@ -333,7 +336,7 @@ void UpdateModeScreen(Game *g) {
     }
   }
 
-  if (IsKeyPressed(KEY_ENTER)) {
+  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     StartTransition(GAME_SCREEN);
     g->mode = selected;
     PlaySound(g->assets.s_enter);
@@ -385,7 +388,7 @@ void UpdateModeScreen(Game *g) {
 void UpdateEndScreen(Game *g) {
   if (StageInEvent()) WriteRank(g);
 
-  if (IsKeyPressed(KEY_ENTER)) {
+  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     StartTransition(START_SCREEN);
     PlaySound(g->assets.s_enter);
   }
