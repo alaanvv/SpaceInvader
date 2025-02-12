@@ -1,0 +1,5 @@
+NAZ 100
+CUM 0
+ALN 0
+ALN 0
+CUM 0

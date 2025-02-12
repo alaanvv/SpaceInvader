@@ -16,7 +16,8 @@
 #define STD_WIDTH     32
 #define STD_HEIGHT    32
 
-#define SAVE_PATH "./saves.txt"
+#define SAVE_PATH "./save.txt"
+#define RANK_PATH "./rank.txt"
 #define NAME_SIZE 3
 #define VOLUME 0.5
 #define NUM_STARS 50
@@ -26,6 +27,8 @@
 #define BACKGROUND_COLOR    (Color) { 10, 0, 10 }
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
+
+#define PLAYER_SPEED 4
 
 typedef struct {
   int active, timer, speed;
@@ -50,7 +53,7 @@ typedef struct {
 
 typedef struct {
   Texture2D player, enemy;
-  Sound s_key, s_undo, s_enter, s_hit, s_shoot[4];
+  Sound s_key, s_undo, s_enter, s_hit, s_nop, s_death, s_shoot[4];
 } Assets;
 
 typedef enum {
@@ -66,6 +69,7 @@ typedef struct {
   Stage stage;
   int winner;
   char nick[11];
+  int pts;
 } Game;
 
 typedef struct {
@@ -98,7 +102,9 @@ void LoadAssets(Game *g);
 void UnloadAssets(Game *g);
 
 char  saves[5][32] = { 0 };
+char  rank[5][32] = { 0 };
 float stars[NUM_STARS][2];
+int   rank_toggle = 0;
 
 Animation anim_player_end   = { 0, 0 };
 Animation anim_player_start = { 0, 0 };
@@ -124,21 +130,27 @@ int main() {
 
 void InitGame(Game *g) {
   // Create file if dont exist
-  FILE* file = fopen(SAVE_PATH, "a");
+  FILE* f_save = fopen(SAVE_PATH, "a");
+  FILE* f_rank = fopen(RANK_PATH, "a");
 
-  // Read saves from file
-  file = fopen(SAVE_PATH, "r");
+  // Read from file
+  f_save = fopen(SAVE_PATH, "r");
+  f_rank = fopen(RANK_PATH, "r");
 
   int i = 0;
-  while (fgets(saves[i], 32, file) && i < 5) i++;
+  while (fgets(saves[i], 32, f_save) && i < 5) i++;
+  i = 0;
+  while (fgets(rank[i], 32, f_rank) && i < 5) i++;
 
-  fclose(file);
+  fclose(f_save);
+  fclose(f_rank);
 
   // ---
 
   g->stage = START_SCREEN;
   g->winner = 0;
   g->nick[0] = '\0';
+  g->pts = 0;
 
   g->borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
   g->borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
@@ -167,7 +179,7 @@ void InitGameWindow(Game *g) {
 void InitShips(Game *g) {
   g->player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - STD_WIDTH / 2.0, WINDOW_HEIGHT - STD_HEIGHT - 10, STD_WIDTH, STD_HEIGHT };
   g->player.color = WHITE;
-  g->player.speed = 3;
+  g->player.speed = PLAYER_SPEED;
   g->player.bullet.active = 0;
   g->player.bullet.speed = 10;
 
@@ -182,36 +194,34 @@ void InitShips(Game *g) {
 
 void FinishGame(Game *g) {
   char new_save[32];
-  sprintf(new_save, "%s %d\n", g->nick, 100);
+  sprintf(new_save, "%s %d\n", g->nick, g->pts);
 
-  FILE *file = fopen(SAVE_PATH, "r");
+  strcpy(saves[4], saves[3]);
+  strcpy(saves[3], saves[2]);
+  strcpy(saves[2], saves[1]);
+  strcpy(saves[1], saves[0]);
+  strcpy(saves[0], new_save);
 
-  if (!file) {
-    file = fopen(SAVE_PATH, "w");
-    fputs(new_save, file);
-    fclose(file);
-    return;
+  for (int i = 4; i >= 0; i--) {
+    int _pts;
+    sscanf(rank[i], "%*s %d", &_pts);
+
+    if (!*rank[i] || g->pts > _pts) {
+      if (i != 4) strcpy(rank[i + 1], rank[i]);
+      strcpy(rank[i], new_save);
+    }
   }
 
-  char lines[5][256];
+  FILE* f_save = fopen(SAVE_PATH, "w");
+  FILE* f_rank = fopen(RANK_PATH, "w");
 
-  for (int i = 0; i < 5; i++)
-    if (!fgets(lines[i], 256, file))
-      lines[i][0] = '\0';
+  for (int i = 0; i < 5; i++) {
+    if (*saves[i]) fprintf(f_save, "%s", saves[i]);
+    if (*rank[i])  fprintf(f_rank, "%s", rank[i]);
+  }
 
-  strcpy(lines[4], lines[3]);
-  strcpy(lines[3], lines[2]);
-  strcpy(lines[2], lines[1]);
-  strcpy(lines[1], lines[0]);
-  strcpy(lines[0], new_save);
-
-  file = fopen(SAVE_PATH, "w");
-
-  for (int i = 0; i < 5; i++)
-    if (lines[i][0] != '\0')
-      fprintf(file, "%s", lines[i]);
-
-  fclose(file);
+  fclose(f_save);
+  fclose(f_rank);
 }
 
 void FinishGameWindow(Game *g) {
@@ -232,21 +242,36 @@ void UpdateStartScreen(Game *g) {
   int remaining = NAME_SIZE - strlen(g->nick);
   int key = toupper(GetCharPressed());
 
-  if (key > 31 && key < 126 && remaining) {
-    g->nick[strlen(g->nick) + 1] = '\0';
-    g->nick[strlen(g->nick)] = key;
+  if (key > 31 && key < 126) {
+    if (!remaining) PlaySound(g->assets.s_nop);
+    else {
+      g->nick[strlen(g->nick) + 1] = '\0';
+      g->nick[strlen(g->nick)] = key;
+      PlaySound(g->assets.s_key);
+    }
+  }
+
+  if (IsKeyPressed(KEY_TAB)) {
+    rank_toggle = !rank_toggle;
     PlaySound(g->assets.s_key);
   }
 
-  if (strlen(g->nick) && IsKeyPressed(KEY_BACKSPACE)) {
-    g->nick[strlen(g->nick) - 1] = '\0';
-    PlaySound(g->assets.s_undo);
+  if (IsKeyPressed(KEY_BACKSPACE)) {
+    if (!strlen(g->nick)) PlaySound(g->assets.s_nop);
+    else {
+      g->nick[strlen(g->nick) - 1] = '\0';
+      PlaySound(g->assets.s_undo);
+    }
   }
-  if (!remaining && IsKeyPressed(KEY_ENTER)) {
-    g->stage = GAME_SCREEN;
-    anim_player_start.running = 1;
-    anim_player_start.start = GetTime();
-    PlaySound(g->assets.s_enter);
+
+  if (IsKeyPressed(KEY_ENTER)) {
+    if (remaining) PlaySound(g->assets.s_nop);
+    else {
+      g->stage = GAME_SCREEN;
+      anim_player_start.running = 1;
+      anim_player_start.start = GetTime();
+      PlaySound(g->assets.s_enter);
+    }
   }
 
   // Label Buffer
@@ -269,7 +294,7 @@ void UpdateStartScreen(Game *g) {
   DrawCenteredText(label_buf, 40, 0, 170, remaining ? WHITE : PURPLE);
   if (!remaining) DrawCenteredText(nick_buf,  40, sin((GetTime() - 0.2) * 13) * 3, 220 + cos((GetTime() - 0.2) * 5) * 4, DARKPURPLE);
   DrawCenteredText(nick_buf,  40, sin(GetTime() * 13) * 3, 220 + cos(GetTime() * 5) * 4, remaining ? WHITE : PURPLE);
-  for (int i = 0; i < 5; i++) DrawCenteredText(saves[i], 50, 0, 300 + 55 * i, PURPLE);
+  for (int i = 0; i < 5; i++) DrawCenteredText(rank_toggle ? rank[i] : saves[i], 50, 0, 300 + 55 * i, PURPLE);
   EndDrawing();
 }
 
@@ -406,6 +431,8 @@ void ShootPlayerBullets(Game *g) {
 int EnemiesBulletCollision(Game *g) {
   if (CheckCollisionRecs(g->player.pos, g->enemy.bullet.pos)) {
     g->stage = END_SCREEN;
+    PlaySound(g->assets.s_death);
+    g->pts = 0;
     FinishGame(g);
     return 1;
   }
@@ -423,6 +450,7 @@ int PlayerBulletCollision(Game *g) {
     anim_player_end.start = GetTime();
     g->stage = END_SCREEN;
     PlaySound(g->assets.s_hit);
+    g->pts = 100;
     FinishGame(g);
     return 1;
   }
@@ -444,6 +472,8 @@ void LoadAssets(Game *g) {
   g->assets.s_undo  = LoadSound("assets/undo.wav");
   g->assets.s_enter = LoadSound("assets/enter.wav");
   g->assets.s_hit   = LoadSound("assets/hit.wav");
+  g->assets.s_nop   = LoadSound("assets/nop.wav");
+  g->assets.s_death = LoadSound("assets/death.wav");
   g->assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
   g->assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
   g->assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
