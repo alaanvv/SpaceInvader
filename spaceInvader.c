@@ -1,6 +1,5 @@
 #include "raylib.h"
 #include <string.h>
-#include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <math.h>
@@ -8,7 +7,6 @@
 #define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
 #define CLAMP(x, y, z) (MAX(MIN(z, y), x))
-#define RAND(min, max) (random() % (max - min) + min)
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
@@ -27,6 +25,7 @@
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
 #define PLAYER_SPEED 4
+#define DAMAGE_COLOR 8
 
 // ---
 
@@ -69,6 +68,9 @@ typedef struct {
 // ---
 
 void  InitGame(Game *g);
+void  ResetMatch(Game* g);
+void  ResetRound(Game* g);
+void  ReadFiles();
 void  InitGameWindow(Game *g);
 void  WriteRank(Game *g);
 void  UpdateGame(Game *g);
@@ -91,7 +93,7 @@ int   StageInEvent();
 void  SetStage(Game *g, Stage stage);
 float Shake(float x, float speed, float intensity);
 float TimeSince(float x);
-void  DrawCenteredText(char* str, int font_size, int x, int y, Color color);
+void  DrawCenteredText(char* str, int size, int x, int y, Color color);
 void  LoadAssets(Game *g);
 void  UnloadAssets(Game *g);
 void  StartAnimation(Animation* anim);
@@ -109,6 +111,7 @@ Animation a_player_out = { 0, 0, 2 };
 Animation a_player_inn = { 0, 0, 1 };
 Animation transition = { 0, 0, 0.5 };
 Stage transition_to;
+int transitioned = 0;
 
 Color background_color = BACKGROUND_COLOR;
 float star_speed = STAR_SPEED;
@@ -122,13 +125,15 @@ int player_immune = 0;
 int main() {
   Game g;
 
-  srand((long) &g);
+  SetRandomSeed((long) &g);
+  InitGame(&g);
   InitGameWindow(&g);
   SetStage(&g, START_SCREEN);
 
   while (!WindowShouldClose()) {
     UpdateMusicStream(g.assets.music);
 
+    // Update screen based on stage
     if      (g.stage == START_SCREEN) UpdateStartScreen(&g);
     else if (g.stage == MODE_SCREEN)  UpdateModeScreen(&g);
     else if (g.stage == END_SCREEN)   UpdateEndScreen(&g);
@@ -140,7 +145,7 @@ int main() {
   return 0;
 }
 
-void InitGame(Game *g) {
+void ReadFiles() {
   // Create file if dont exist
   FILE* f_save = fopen(SAVE_PATH, "a");
   FILE* f_rank = fopen(RANK_PATH, "a");
@@ -156,26 +161,35 @@ void InitGame(Game *g) {
 
   fclose(f_save);
   fclose(f_rank);
+}
 
-  // ---
-
-  background_color = BACKGROUND_COLOR;
-  star_speed = STAR_SPEED;
-  g->nick[0] = '\0';
-  g->winner = 0;
-  g->pts = 0;
-
+void InitGame(Game *g) {
   g->borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
   g->borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
   g->borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
   g->borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
 
   for (int i = 0; i < NUM_STARS; i++) {
-    stars[i][0] = RAND(0, WINDOW_WIDTH);
-    stars[i][1] = RAND(0, WINDOW_HEIGHT);
+    stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
+    stars[i][1] = GetRandomValue(0, WINDOW_HEIGHT);
   }
 
+  ReadFiles();
+  ResetMatch(g);
+}
+
+void ResetMatch(Game* g) {
+  g->winner = 0;
+  g->pts = 0;
   g->player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
+
+  ResetRound(g);
+}
+
+void ResetRound(Game* g) {
+  background_color = BACKGROUND_COLOR;
+
+  star_speed = STAR_SPEED;
   g->player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
   g->player.speed = PLAYER_SPEED;
   g->player.shooting = 0;
@@ -188,6 +202,9 @@ void InitGame(Game *g) {
   g->enemy.shooting = 0;
   g->enemy.bullet_speed = 5;
   enemy_direction = 1;
+
+  a_player_out.running = 0;
+  g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10;
 }
 
 void InitGameWindow(Game *g) {
@@ -234,18 +251,20 @@ void WriteRank(Game *g) {
 
 void UpdateGame(Game *g) {
   if (StageInEvent()) {
+    ResetRound(g);
     StartAnimation(&a_player_inn);
     g->enemy.last_shoot = GetTime();
 
     // Adjusts based on mode
     g->player.hp = g->mode == NORMAL ? 3 : g->mode == HARD ? 2 : 1;
-    background_color.r += g->mode * 3;
     g->enemy.speed *= 1 + g->mode * 0.3;
     g->enemy.bullet_speed *= 1 + g->mode * 0.5;
     g->enemy.shoot_timer = g->mode == NORMAL ? 3 : g->mode == HARD ? 1 : 0.1;
+    background_color.r += g->mode * DAMAGE_COLOR;
     star_speed *= 1 + g->mode;
   }
 
+  // Decrease immunity frames
   if (player_immune) player_immune--;
 
   EnemiesMovement(g);
@@ -256,14 +275,19 @@ void UpdateGame(Game *g) {
 }
 
 void UpdateStartScreen(Game *g) {
-  if (StageInEvent()) InitGame(g);
+  // if-block that only runs once per stage
+  if (StageInEvent()) {
+    g->nick[0] = '\0';
+    InitGame(g);
+  }
 
-  static int rank_toggle = 0;
+  // How many letters remaining to complete name
   int remaining = NAME_SIZE - strlen(g->nick);
-  int key = toupper(GetCharPressed());
 
-  if (key >= 65 && key <= 90 || key >= 97 && key <= 122) {
-    if (!remaining) PlaySound(g->assets.s_nop);
+  // Letter from a-Z
+  int key = toupper(GetCharPressed());
+  if (key >= 65 && key <= 90) {
+    if (!remaining) PlaySound(g->assets.s_nop); // Play NOP when nothing happens
     else {
       g->nick[strlen(g->nick) + 1] = '\0';
       g->nick[strlen(g->nick)] = key;
@@ -271,6 +295,8 @@ void UpdateStartScreen(Game *g) {
     }
   }
 
+  // Swap between showing the rank or last games
+  static int rank_toggle = 0;
   if (IsKeyPressed(KEY_TAB)) {
     rank_toggle = !rank_toggle;
     PlaySound(g->assets.s_key);
@@ -318,9 +344,11 @@ void UpdateStartScreen(Game *g) {
 }
 
 void UpdateModeScreen(Game *g) {
+  if (StageInEvent()) ResetMatch(g);
+
   static Mode selected = NORMAL;
 
-  if (IsKeyPressed(264) || IsKeyPressed(83)) {
+  if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) {
     if (selected == HARDCORE) PlaySound(g->assets.s_nop);
     else {
       selected++;
@@ -328,7 +356,7 @@ void UpdateModeScreen(Game *g) {
     }
   }
 
-  if (IsKeyPressed(265) || IsKeyPressed(87)) {
+  if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) {
     if (selected == 0) PlaySound(g->assets.s_nop);
     else {
       selected--;
@@ -386,19 +414,17 @@ void UpdateModeScreen(Game *g) {
 }
 
 void UpdateEndScreen(Game *g) {
-  if (StageInEvent()) WriteRank(g);
-
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    StartTransition(START_SCREEN);
+    StartTransition(g->winner ? GAME_SCREEN : START_SCREEN);
     PlaySound(g->assets.s_enter);
   }
 
+  if (!g->winner) EnemiesMovement(g);
+
   if (a_player_out.running) {
     float x = AnimationKeyFrame(&a_player_out);
-    g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - x / a_player_out.duration * x / a_player_out.duration * WINDOW_HEIGHT;
+    g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - pow(x / a_player_out.duration, 2) * WINDOW_HEIGHT;
   }
-
-  if (!g->winner) EnemiesMovement(g);
 
   char* message = g->winner ? "YOU WON" : "YOU DIED";
   Color color   = g->winner ? GREEN     : RED;
@@ -444,15 +470,14 @@ void DrawEnemies(Game *g) {
 }
 
 void DrawPlayer(Game *g) {
-  int y = g->player.pos.y;
+  Rectangle frame_rec = { 0, 0, 32, 32 };
+  Rectangle pos_rec   = { g->player.pos.x, g->player.pos.y, 32, 32 };
 
   if (a_player_inn.running) {
     float x = AnimationKeyFrame(&a_player_inn);
-    y += pow(x - 1, 2) * 50;
+    pos_rec.y += pow(x - 1, 2) * 50;
   }
 
-  Rectangle frame_rec = { 0, 0, 32, 32 };
-  Rectangle pos_rec   = { g->player.pos.x, y, 32, 32 };
   Color color = { 255, 255, 255, player_immune ? 127 : 255 };
   DrawTexturePro(g->assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
 }
@@ -477,8 +502,8 @@ void MoveStars(Game *g) {
 }
 
 void PlayerMovement(Game *g) {
-  if ((IsKeyDown(262) || IsKeyDown(68)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
-  if ((IsKeyDown(263) || IsKeyDown(65)) && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
+  if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
+  if ((IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
 }
 
 void EnemiesMovement(Game *g) {
@@ -514,19 +539,21 @@ void PlayerShoot(Game *g) {
   g->player.bullet.x = g->player.pos.x + g->player.pos.width  / 2;
   g->player.bullet.y = g->player.pos.y + g->player.pos.height / 2;
   g->player.shooting = 1;
-  PlaySound(g->assets.s_shoot[RAND(0, 3)]);
+  PlaySound(g->assets.s_shoot[GetRandomValue(0, 3)]);
 }
 
 void EnemiesBulletCollision(Game *g) {
   if (!player_immune && CheckCollisionRecs(g->player.pos, g->enemy.bullet)) {
     g->enemy.shooting = 0;
     player_immune = 30;
-    background_color.r += 3;
+    background_color.r += DAMAGE_COLOR;
     if (--g->player.hp)
       PlaySound(g->assets.s_hit);
     else {
+      g->winner = 0;
       SetStage(g, END_SCREEN);
       PlaySound(g->assets.s_death);
+      WriteRank(g);
       g->pts = 0;
     }
   }
@@ -541,7 +568,7 @@ void PlayerBulletCollision(Game *g) {
     StartAnimation(&a_player_out);
     SetStage(g, END_SCREEN);
     PlaySound(g->assets.s_hit);
-    g->pts = 100 * (g->mode + 1);
+    g->pts += 100 * (g->mode + 1);
     g->player.shooting = 0;
   }
 
@@ -551,9 +578,9 @@ void PlayerBulletCollision(Game *g) {
 
 // Stage
 
-int  StageInEvent() {
+int StageInEvent() {
   int tmp = stage_in_event;
-  if (!tmp) stage_in_event = 1;
+  stage_in_event = 1;
   return !tmp;
 }
 
@@ -572,8 +599,8 @@ float TimeSince(float x) {
   return GetTime() - x;
 }
 
-void DrawCenteredText(char* str, int font_size, int x, int y, Color color) {
-  DrawText(str, WINDOW_WIDTH / 2 - MeasureText(str, font_size) / 2 + x, y, font_size, color);
+void DrawCenteredText(char* str, int size, int x, int y, Color color) {
+  DrawText(str, WINDOW_WIDTH / 2 - MeasureText(str, size) / 2 + x, y, size, color);
 }
 
 // Assets
@@ -630,11 +657,15 @@ float AnimationKeyFrame(Animation* anim) {
 void StartTransition(Stage to) {
   StartAnimation(&transition);
   transition_to = to;
+  transitioned = 0;
 }
 
 void DrawTransition(Game *g) {
   if (!transition.running) return;
   float x = AnimationKeyFrame(&transition);
-  if (x >= transition.duration / 2 && g->stage != transition_to) SetStage(g, transition_to);
+  if (x >= transition.duration / 2 && !transitioned) {
+    SetStage(g, transition_to);
+    transitioned = 1;
+  }
   DrawRectangle(-WINDOW_WIDTH + x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
 }
