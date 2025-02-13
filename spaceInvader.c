@@ -7,7 +7,7 @@
 #define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
 #define CLAMP(x, y, z) (MAX(MIN(z, y), x))
-
+#define CIRCULAR_CLAMP(x, y, z) ((y < x) ? z : ((y > z) ? x : y))
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
 #define BULLET_WIDTH  10
@@ -17,15 +17,15 @@
 #define SAVE_PATH "./save.txt"
 #define RANK_PATH "./rank.txt"
 #define NAME_SIZE 3
-#define VOLUME 0.5
-#define NUM_STARS 50
+#define NUM_STARS  50
 #define STAR_SPEED 0.3
-#define STAR_SIZE 2
+#define STAR_SIZE  2
+#define VOLUME 0.5
 #define BACKGROUND_COLOR (Color) { 10, 0, 10 }
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
+#define DAMAGE_REDNESS 8
 #define PLAYER_SPEED 4
-#define DAMAGE_COLOR 8
 
 // ---
 
@@ -67,45 +67,42 @@ typedef struct {
 
 // ---
 
-void  InitGame(Game *g);
-void  ResetMatch(Game* g);
-void  ResetRound(Game* g);
+void  InitGame();
+void  InitMatch();
 void  ReadFiles();
-void  InitGameWindow(Game *g);
-void  WriteRank(Game *g);
-void  UpdateGame(Game *g);
-void  UpdateStartScreen(Game *g);
-void  UpdateModeScreen(Game *g);
-void  UpdateEndScreen(Game *g);
-void  DrawGame(Game *g);
-void  DrawEnemies(Game *g);
-void  DrawPlayer(Game *g);
-void  DrawBullets(Game *g);
-void  DrawStars(Game *g);
-void  MoveStars(Game *g);
-void  PlayerMovement(Game *g);
-void  EnemiesMovement(Game *g);
-void  EnemyShoot(Game *g);
-void  PlayerShoot(Game *g);
-void  EnemiesBulletCollision(Game *g);
-void  PlayerBulletCollision(Game *g);
+void  WriteRank();
+void  StageStart();
+void  StageMode();
+void  StageEnd();
+void  StageGame();
+void  DrawEnemies();
+void  DrawPlayer();
+void  DrawBullets();
+void  DrawStars();
+void  PlayerMovement();
+void  EnemiesMovement();
+void  EnemyShoot();
+void  PlayerShoot();
+void  EnemiesBulletCollision();
+void  PlayerBulletCollision();
 int   StageInEvent();
-void  SetStage(Game *g, Stage stage);
-float Shake(float x, float speed, float intensity);
-float TimeSince(float x);
-void  DrawCenteredText(char* str, int size, int x, int y, Color color);
-void  LoadAssets(Game *g);
-void  UnloadAssets(Game *g);
+void  SetStage(Stage stage);
+void  LoadAssets();
+void  UnloadAssets();
 void  StartAnimation(Animation* anim);
 float AnimationKeyFrame(Animation* anim);
 void  StartTransition(Stage to);
-void  DrawTransition(Game *g);
+void  DrawTransition();
+float Shake(float x, float speed, float intensity);
+float TimeSince(float x);
+void  DrawCenteredText(char* str, int size, int x, int y, Color color);
 
 // ---
 
+Game g;
+
 char saves[5][16] = { 0 };
 char  rank[5][16] = { 0 };
-float stars[NUM_STARS][2];
 
 Animation a_player_out = { 0, 0, 2 };
 Animation a_player_inn = { 0, 0, 1 };
@@ -114,6 +111,7 @@ Stage transition_to;
 int transitioned = 0;
 
 Color background_color = BACKGROUND_COLOR;
+float stars[NUM_STARS][2];
 float star_speed = STAR_SPEED;
 
 int stage_in_event = 0;
@@ -123,27 +121,67 @@ int player_immune = 0;
 // ---
 
 int main() {
-  Game g;
-
   SetRandomSeed((long) &g);
-  InitGame(&g);
-  InitGameWindow(&g);
-  SetStage(&g, START_SCREEN);
+  InitGame();
+  SetStage(START_SCREEN);
 
   while (!WindowShouldClose()) {
     UpdateMusicStream(g.assets.music);
 
-    // Update screen based on stage
-    if      (g.stage == START_SCREEN) UpdateStartScreen(&g);
-    else if (g.stage == MODE_SCREEN)  UpdateModeScreen(&g);
-    else if (g.stage == END_SCREEN)   UpdateEndScreen(&g);
-    else if (g.stage == GAME_SCREEN)  UpdateGame(&g);
+    BeginDrawing();
+    ClearBackground(background_color);
+    DrawStars();
+    if      (g.stage == START_SCREEN) StageStart();
+    else if (g.stage == MODE_SCREEN)  StageMode();
+    else if (g.stage == END_SCREEN)   StageEnd();
+    else if (g.stage == GAME_SCREEN)  StageGame();
+    DrawTransition();
+    EndDrawing();
   }
 
-  UnloadAssets(&g);
+  UnloadAssets();
   CloseWindow();
   return 0;
 }
+
+// Initialization
+
+void InitGame() {
+  InitAudioDevice();
+  InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space Invaders");
+  SetTargetFPS(60);
+  LoadAssets();
+  SetMusicVolume(g.assets.music, VOLUME * 0.3);
+  SetMasterVolume(VOLUME);
+  PlayMusicStream(g.assets.music);
+
+  g.borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
+  g.borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
+  g.borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
+  g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
+
+  g.player.speed  = PLAYER_SPEED;
+  g.player.bullet_speed = 10;
+  g.enemy.speed  = 3;
+  g.enemy.bullet_speed = 5;
+
+  for (int i = 0; i < NUM_STARS; i++) {
+    stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
+    stars[i][1] = GetRandomValue(0, WINDOW_HEIGHT);
+  }
+}
+
+void InitMatch() {
+  background_color = BACKGROUND_COLOR;
+  star_speed = STAR_SPEED;
+  g.winner = 0;
+  g.pts = 0;
+  g.player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
+
+  ReadFiles();
+}
+
+// Rank
 
 void ReadFiles() {
   // Create file if dont exist
@@ -163,75 +201,18 @@ void ReadFiles() {
   fclose(f_rank);
 }
 
-void InitGame(Game *g) {
-  g->borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
-  g->borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
-  g->borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
-  g->borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
-
-  for (int i = 0; i < NUM_STARS; i++) {
-    stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
-    stars[i][1] = GetRandomValue(0, WINDOW_HEIGHT);
-  }
-
-  ReadFiles();
-  ResetMatch(g);
-}
-
-void ResetMatch(Game* g) {
-  g->winner = 0;
-  g->pts = 0;
-  g->player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
-
-  ResetRound(g);
-}
-
-void ResetRound(Game* g) {
-  background_color = BACKGROUND_COLOR;
-
-  star_speed = STAR_SPEED;
-  g->player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-  g->player.speed = PLAYER_SPEED;
-  g->player.shooting = 0;
-  g->player.bullet_speed = 10;
-  player_immune = 0;
-
-  g->enemy.pos    = (Rectangle) { 0, 15, SHIP_WIDTH, SHIP_HEIGHT };
-  g->enemy.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-  g->enemy.speed = 3;
-  g->enemy.shooting = 0;
-  g->enemy.bullet_speed = 5;
-  enemy_direction = 1;
-
-  a_player_out.running = 0;
-  g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10;
-}
-
-void InitGameWindow(Game *g) {
-  InitAudioDevice();
-  InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space Invaders");
-  SetTargetFPS(60);
-  LoadAssets(g);
-  SetMusicVolume(g->assets.music, VOLUME * 0.3);
-  SetMasterVolume(VOLUME);
-  PlayMusicStream(g->assets.music);
-}
-
-void WriteRank(Game *g) {
+void WriteRank() {
   char new_save[32];
-  sprintf(new_save, "%s %d\n", g->nick, g->pts);
+  sprintf(new_save, "%s %d\n", g.nick, g.pts);
 
-  strcpy(saves[4], saves[3]);
-  strcpy(saves[3], saves[2]);
-  strcpy(saves[2], saves[1]);
-  strcpy(saves[1], saves[0]);
-  strcpy(saves[0], new_save);
+  for (int i = 4; i >= 0; i--)
+    strcpy(saves[i], i ? saves[i - 1] : new_save);
 
   for (int i = 4; i >= 0; i--) {
-    int _pts;
-    sscanf(rank[i], "%*s %d", &_pts);
+    int pts;
+    sscanf(rank[i], "%*s %d", &pts);
 
-    if (!*rank[i] || g->pts > _pts) {
+    if (!*rank[i] || g.pts > pts) {
       if (i != 4) strcpy(rank[i + 1], rank[i]);
       strcpy(rank[i], new_save);
     }
@@ -249,49 +230,26 @@ void WriteRank(Game *g) {
   fclose(f_rank);
 }
 
-void UpdateGame(Game *g) {
-  if (StageInEvent()) {
-    ResetRound(g);
-    StartAnimation(&a_player_inn);
-    g->enemy.last_shoot = GetTime();
+// Stage
 
-    // Adjusts based on mode
-    g->player.hp = g->mode == NORMAL ? 3 : g->mode == HARD ? 2 : 1;
-    g->enemy.speed *= 1 + g->mode * 0.3;
-    g->enemy.bullet_speed *= 1 + g->mode * 0.5;
-    g->enemy.shoot_timer = g->mode == NORMAL ? 3 : g->mode == HARD ? 1 : 0.1;
-    background_color.r += g->mode * DAMAGE_COLOR;
-    star_speed *= 1 + g->mode;
-  }
-
-  // Decrease immunity frames
-  if (player_immune) player_immune--;
-
-  EnemiesMovement(g);
-  PlayerMovement(g);
-  EnemyShoot(g);
-  PlayerShoot(g);
-  DrawGame(g);
-}
-
-void UpdateStartScreen(Game *g) {
+void StageStart() {
   // if-block that only runs once per stage
   if (StageInEvent()) {
-    g->nick[0] = '\0';
-    InitGame(g);
+    g.nick[0] = '\0';
+    InitMatch();
   }
 
   // How many letters remaining to complete name
-  int remaining = NAME_SIZE - strlen(g->nick);
+  int remaining = NAME_SIZE - strlen(g.nick);
 
   // Letter from a-Z
   int key = toupper(GetCharPressed());
   if (key >= 65 && key <= 90) {
-    if (!remaining) PlaySound(g->assets.s_nop); // Play NOP when nothing happens
+    if (!remaining) PlaySound(g.assets.s_nop); // Play NOP when nothing happens
     else {
-      g->nick[strlen(g->nick) + 1] = '\0';
-      g->nick[strlen(g->nick)] = key;
-      PlaySound(g->assets.s_key);
+      g.nick[strlen(g.nick) + 1] = '\0';
+      g.nick[strlen(g.nick)] = key;
+      PlaySound(g.assets.s_key);
     }
   }
 
@@ -299,22 +257,22 @@ void UpdateStartScreen(Game *g) {
   static int rank_toggle = 0;
   if (IsKeyPressed(KEY_TAB)) {
     rank_toggle = !rank_toggle;
-    PlaySound(g->assets.s_key);
+    PlaySound(g.assets.s_key);
   }
 
   if (IsKeyPressed(KEY_BACKSPACE)) {
-    if (!strlen(g->nick)) PlaySound(g->assets.s_nop);
+    if (!strlen(g.nick)) PlaySound(g.assets.s_nop);
     else {
-      g->nick[strlen(g->nick) - 1] = '\0';
-      PlaySound(g->assets.s_undo);
+      g.nick[strlen(g.nick) - 1] = '\0';
+      PlaySound(g.assets.s_undo);
     }
   }
 
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    if (remaining) PlaySound(g->assets.s_nop);
+    if (remaining) PlaySound(g.assets.s_nop);
     else {
       StartTransition(MODE_SCREEN);
-      PlaySound(g->assets.s_enter);
+      PlaySound(g.assets.s_enter);
     }
   }
 
@@ -327,133 +285,128 @@ void UpdateStartScreen(Game *g) {
 
   // Nickname Buffer
   char nick_buf[64];
-  strcpy(nick_buf, g->nick);
-  if (strlen(g->nick) < NAME_SIZE) strcat(nick_buf, "_");
+  strcpy(nick_buf, g.nick);
+  if (strlen(g.nick) < NAME_SIZE) strcat(nick_buf, "_");
 
-  BeginDrawing();
-  ClearBackground(background_color);
-  DrawStars(g);
   DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
   DrawCenteredText(label_buf, 40, 0, 170, remaining ? WHITE : PURPLE);
   if (!remaining) DrawCenteredText(nick_buf,  40, Shake(-0.2, 13, 3), 220 + Shake(-0.2, 5, 4), DARKPURPLE);
   DrawCenteredText(nick_buf,  40, Shake(0, 13, 3), 220 + Shake(0, 5, 4), remaining ? WHITE : PURPLE);
   for (int i = 0; i < 5; i++) DrawCenteredText(rank_toggle ? rank[i] : saves[i], 50, 0, 300 + 55 * i, PURPLE);
-  DrawTransition(g);
-  EndDrawing();
 }
 
-void UpdateModeScreen(Game *g) {
-  if (StageInEvent()) ResetMatch(g);
+void StageMode() {
+  if (StageInEvent()) InitMatch();
 
   static Mode selected = NORMAL;
 
   if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) {
-    if (selected == HARDCORE) PlaySound(g->assets.s_nop);
+    if (selected == HARDCORE) PlaySound(g.assets.s_nop);
     else {
       selected++;
-      PlaySound(g->assets.s_key);
+      PlaySound(g.assets.s_key);
     }
   }
 
   if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) {
-    if (selected == 0) PlaySound(g->assets.s_nop);
+    if (selected == 0) PlaySound(g.assets.s_nop);
     else {
       selected--;
-      PlaySound(g->assets.s_key);
+      PlaySound(g.assets.s_key);
     }
   }
 
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     StartTransition(GAME_SCREEN);
-    g->mode = selected;
-    PlaySound(g->assets.s_enter);
+    g.mode = selected;
+    PlaySound(g.assets.s_enter);
   }
 
-  char _buffer[32], buffer[32];
-
-  BeginDrawing();
-  ClearBackground(background_color);
-  DrawStars(g);
   DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
   DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
 
+  char buffer[32];
   for (int i = 0; i <= HARDCORE; i++) {
-    Color color, color_d;
-    buffer[0]  = '\0';
-    _buffer[0] = '\0';
+    Color color[]   = { WHITE,    PURPLE,     RED       };
+    Color color_d[] = { GRAY,     DARKPURPLE, DARKBROWN };
+    char mode[][32] = { "NORMAL", "HARD",     "HARDCORE"};
 
-    switch (i) {
-      case NORMAL:
-        strcat(_buffer, "NORMAL");
-        color   = WHITE;
-        color_d = GRAY;
-        break;
-      case HARD:
-        strcat(_buffer, "HARD");
-        color   = PURPLE;
-        color_d = DARKPURPLE;
-        break;
-      case HARDCORE:
-        strcat(_buffer, "HARDCORE");
-        color   = RED;
-        color_d = DARKBROWN;
-        break;
-    }
-
-    sprintf(buffer, selected == i ? "> %s <" : "%s", _buffer);
+    sprintf(buffer, selected == i ? "> %s <" : "%s", mode[i]);
     if (selected == i) {
-      DrawCenteredText(buffer, 55, Shake(-0.2, 9 * (i + 1), 4), 250 + 100 * i + Shake(-0.2, 5 * (i + 1), 3), color_d);
-      DrawCenteredText(buffer, 55, Shake(0,    9 * (i + 1), 4), 250 + 100 * i + Shake(0,    5 * (i + 1), 3), color);
+      DrawCenteredText(buffer, 55, Shake(-0.2, 9 * (i + 1), 4), 250 + 100 * i + Shake(-0.2, 5 * (i + 1), 3), color_d[i]);
+      DrawCenteredText(buffer, 55, Shake(0,    9 * (i + 1), 4), 250 + 100 * i + Shake(0,    5 * (i + 1), 3), color[i]);
     }
-    else DrawCenteredText(buffer, 50, 0, 250 + 100 * i, color);
+    else DrawCenteredText(buffer, 50, 0, 250 + 100 * i, color[i]);
   }
-
-  DrawTransition(g);
-  EndDrawing();
 }
 
-void UpdateEndScreen(Game *g) {
+void StageEnd() {
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    StartTransition(g->winner ? GAME_SCREEN : START_SCREEN);
-    PlaySound(g->assets.s_enter);
+    StartTransition(g.winner ? GAME_SCREEN : START_SCREEN);
+    PlaySound(g.assets.s_enter);
   }
 
-  if (!g->winner) EnemiesMovement(g);
+  if (!g.winner) EnemiesMovement();
 
   if (a_player_out.running) {
     float x = AnimationKeyFrame(&a_player_out);
-    g->player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - pow(x / a_player_out.duration, 2) * WINDOW_HEIGHT;
+    g.player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - pow(x / a_player_out.duration, 2) * WINDOW_HEIGHT;
   }
 
-  char* message = g->winner ? "YOU WON" : "YOU DIED";
-  Color color   = g->winner ? GREEN     : RED;
-  Color color_d = g->winner ? DARKGREEN : DARKBROWN;
+  char* message = g.winner ? "YOU WON" : "YOU DIED";
+  Color color   = g.winner ? GREEN     : RED;
+  Color color_d = g.winner ? DARKGREEN : DARKBROWN;
 
-  BeginDrawing();
-  ClearBackground(background_color);
-  DrawStars(g);
   DrawCenteredText(message, 80, Shake(-0.2, 13, 4), 250 + Shake(-0.2, 5, 5), color_d);
   DrawCenteredText(message, 80, Shake(0,    13, 4), 250 + Shake(0,    5, 5), color);
   DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
-  if (g->winner) DrawPlayer(g);
-  else           DrawEnemies(g);
-  DrawTransition(g);
-  EndDrawing();
+  if (g.winner) DrawPlayer();
+  else          DrawEnemies();
 }
 
-void DrawGame(Game *g) {
-  BeginDrawing();
-  ClearBackground(background_color);
-  DrawStars(g);
-  DrawBullets(g);
-  DrawEnemies(g);
-  DrawPlayer(g);
-  DrawTransition(g);
-  EndDrawing();
+void StageGame() {
+  if (StageInEvent()) {
+    background_color = BACKGROUND_COLOR;
+    star_speed = STAR_SPEED;
+
+    g.player.pos.y  = WINDOW_HEIGHT - SHIP_HEIGHT - 10;
+    g.player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+    g.player.shooting = 0;
+    player_immune     = 0;
+
+    g.enemy.pos    = (Rectangle) { 0, 15, SHIP_WIDTH, SHIP_HEIGHT };
+    g.enemy.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+    g.enemy.shooting = 0;
+    enemy_direction  = 1;
+
+    a_player_out.running = 0;    StartAnimation(&a_player_inn);
+
+    g.enemy.last_shoot = GetTime();
+
+    // Adjusts based on mode
+    g.player.hp          = g.mode == NORMAL ? 3 : g.mode == HARD ? 2   : 1;
+    g.enemy.speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
+    g.enemy.bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
+    g.enemy.shoot_timer  = g.mode == NORMAL ? 3 : g.mode == HARD ? 1   : 0.1;
+    background_color.r += g.mode * DAMAGE_REDNESS;
+    star_speed         *= g.mode + 1;
+  }
+
+  if (player_immune) player_immune--;
+
+  EnemiesMovement();
+  PlayerMovement();
+  EnemyShoot();
+  PlayerShoot();
+  DrawBullets();
+  DrawEnemies();
+  DrawPlayer();
 }
 
-void DrawEnemies(Game *g) {
+// Draw
+
+void DrawEnemies() {
   Vector2 frame_size = { 32, 32 };
 
   static int frame = 0;
@@ -465,13 +418,13 @@ void DrawEnemies(Game *g) {
   }
 
   Rectangle frame_rec = { frame * frame_size.x, 0, frame_size.x, frame_size.y };
-  Rectangle pos_rec   = { g->enemy.pos.x, g->enemy.pos.y, 32, 32 };
-  DrawTexturePro(g->assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+  Rectangle pos_rec   = { g.enemy.pos.x, g.enemy.pos.y, 32, 32 };
+  DrawTexturePro(g.assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
 }
 
-void DrawPlayer(Game *g) {
+void DrawPlayer() {
   Rectangle frame_rec = { 0, 0, 32, 32 };
-  Rectangle pos_rec   = { g->player.pos.x, g->player.pos.y, 32, 32 };
+  Rectangle pos_rec   = { g.player.pos.x, g.player.pos.y, 32, 32 };
 
   if (a_player_inn.running) {
     float x = AnimationKeyFrame(&a_player_inn);
@@ -479,101 +432,97 @@ void DrawPlayer(Game *g) {
   }
 
   Color color = { 255, 255, 255, player_immune ? 127 : 255 };
-  DrawTexturePro(g->assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
+  DrawTexturePro(g.assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
 }
 
-void DrawBullets(Game *g) {
-  if (g->player.shooting) DrawRectangleRec(g->player.bullet, PLAYER_BULLET_COLOR);
-  if (g->enemy.shooting)  DrawRectangleRec(g->enemy.bullet,  ENEMY_BULLET_COLOR);
+void DrawBullets() {
+  if (g.player.shooting) DrawRectangleRec(g.player.bullet, PLAYER_BULLET_COLOR);
+  if (g.enemy.shooting)  DrawRectangleRec(g.enemy.bullet,  ENEMY_BULLET_COLOR);
 }
 
-void DrawStars(Game *g) {
-  for (int i = 0; i < NUM_STARS; i++)
-    DrawRectangle(stars[i][0], stars[i][1], STAR_SIZE, STAR_SIZE, WHITE);
-  MoveStars(g);
-}
-
-void MoveStars(Game *g) {
+void DrawStars() {
   for (int i = 0; i < NUM_STARS; i++) {
-    stars[i][1] += star_speed;
-    if (stars[i][1] > WINDOW_HEIGHT)
-      stars[i][1] = -STAR_SIZE;
+    stars[i][1] = CIRCULAR_CLAMP(-STAR_SIZE, stars[i][1] + star_speed, WINDOW_HEIGHT);
+    DrawRectangle(stars[i][0], stars[i][1], STAR_SIZE, STAR_SIZE, WHITE);
   }
 }
 
-void PlayerMovement(Game *g) {
-  if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g->player.pos, g->borders[3])) g->player.pos.x += g->player.speed;
-  if ((IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  && !CheckCollisionRecs(g->player.pos, g->borders[2])) g->player.pos.x -= g->player.speed;
+// Game functions
+
+void PlayerMovement() {
+  if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g.player.pos, g.borders[3])) g.player.pos.x += g.player.speed;
+  if ((IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  && !CheckCollisionRecs(g.player.pos, g.borders[2])) g.player.pos.x -= g.player.speed;
 }
 
-void EnemiesMovement(Game *g) {
-  if      (CheckCollisionRecs(g->enemy.pos, g->borders[2])) enemy_direction =  1;
-  else if (CheckCollisionRecs(g->enemy.pos, g->borders[3])) enemy_direction = -1;
+void EnemiesMovement() {
+  if      (CheckCollisionRecs(g.enemy.pos, g.borders[2])) enemy_direction =  1;
+  else if (CheckCollisionRecs(g.enemy.pos, g.borders[3])) enemy_direction = -1;
 
-  g->enemy.pos.x += g->enemy.speed * enemy_direction;
+  g.enemy.pos.x += g.enemy.speed * enemy_direction;
 }
 
-void EnemyShoot(Game *g) {
-  if (g->enemy.shooting) {
-    EnemiesBulletCollision(g);
-    g->enemy.bullet.y += g->enemy.bullet_speed;
+void EnemyShoot() {
+  if (g.enemy.shooting) {
+    EnemiesBulletCollision();
+    g.enemy.bullet.y += g.enemy.bullet_speed;
     return;
   }
 
-  if (TimeSince(g->enemy.last_shoot) < g->enemy.shoot_timer) return;
-  g->enemy.bullet.x = g->enemy.pos.x + g->enemy.pos.width  / 2;
-  g->enemy.bullet.y = g->enemy.pos.y + g->enemy.pos.height / 2;
-  g->enemy.shooting = 1;
-  g->enemy.last_shoot = GetTime();
-  PlaySound(g->assets.s_e_shoot);
+  if (TimeSince(g.enemy.last_shoot) < g.enemy.shoot_timer) return;
+  g.enemy.bullet.x = g.enemy.pos.x + g.enemy.pos.width  / 2;
+  g.enemy.bullet.y = g.enemy.pos.y + g.enemy.pos.height / 2;
+  g.enemy.shooting = 1;
+  g.enemy.last_shoot = GetTime();
+  PlaySound(g.assets.s_e_shoot);
 }
 
-void PlayerShoot(Game *g) {
-  if (g->player.shooting) {
-    PlayerBulletCollision(g);
-    g->player.bullet.y -= g->player.bullet_speed;
+void PlayerShoot() {
+  if (g.player.shooting) {
+    PlayerBulletCollision();
+    g.player.bullet.y -= g.player.bullet_speed;
     return;
   }
 
   if (!IsKeyDown(32)) return;
-  g->player.bullet.x = g->player.pos.x + g->player.pos.width  / 2;
-  g->player.bullet.y = g->player.pos.y + g->player.pos.height / 2;
-  g->player.shooting = 1;
-  PlaySound(g->assets.s_shoot[GetRandomValue(0, 3)]);
+  g.player.bullet.x = g.player.pos.x + g.player.pos.width  / 2 - BULLET_WIDTH  / 2.0;
+  g.player.bullet.y = g.player.pos.y + g.player.pos.height / 2 - BULLET_HEIGHT / 2.0;
+  g.player.shooting = 1;
+  PlaySound(g.assets.s_shoot[GetRandomValue(0, 3)]);
 }
 
-void EnemiesBulletCollision(Game *g) {
-  if (!player_immune && CheckCollisionRecs(g->player.pos, g->enemy.bullet)) {
-    g->enemy.shooting = 0;
+void EnemiesBulletCollision() {
+  if (!player_immune && CheckCollisionRecs(g.player.pos, g.enemy.bullet)) {
+    g.enemy.shooting = 0;
     player_immune = 30;
-    background_color.r += DAMAGE_COLOR;
-    if (--g->player.hp)
-      PlaySound(g->assets.s_hit);
+    background_color.r += DAMAGE_REDNESS;
+    if (--g.player.hp)
+      PlaySound(g.assets.s_hit);
     else {
-      g->winner = 0;
-      SetStage(g, END_SCREEN);
-      PlaySound(g->assets.s_death);
-      WriteRank(g);
-      g->pts = 0;
+      // TODO Make death a function
+      g.winner = 0;
+      SetStage(END_SCREEN);
+      PlaySound(g.assets.s_death);
+      WriteRank();
+      g.pts = 0;
     }
   }
 
-  if (CheckCollisionRecs(g->enemy.bullet, g->borders[1]))
-    g->enemy.shooting = 0;
+  if (CheckCollisionRecs(g.enemy.bullet, g.borders[1]))
+    g.enemy.shooting = 0;
 }
 
-void PlayerBulletCollision(Game *g) {
-  if (CheckCollisionRecs(g->enemy.pos, g->player.bullet)) {
-    g->winner = 1;
+void PlayerBulletCollision() {
+  if (CheckCollisionRecs(g.enemy.pos, g.player.bullet)) {
+    g.winner = 1;
     StartAnimation(&a_player_out);
-    SetStage(g, END_SCREEN);
-    PlaySound(g->assets.s_hit);
-    g->pts += 100 * (g->mode + 1);
-    g->player.shooting = 0;
+    SetStage(END_SCREEN);
+    PlaySound(g.assets.s_hit);
+    g.pts += 100 * (g.mode + 1);
+    g.player.shooting = 0;
   }
 
-  if (CheckCollisionRecs(g->player.bullet, g->borders[0]))
-    g->player.shooting = 0;
+  if (CheckCollisionRecs(g.player.bullet, g.borders[0]))
+    g.player.shooting = 0;
 }
 
 // Stage
@@ -584,59 +533,45 @@ int StageInEvent() {
   return !tmp;
 }
 
-void SetStage(Game *g, Stage stage) {
-  g->stage = stage;
+void SetStage(Stage stage) {
+  g.stage = stage;
   stage_in_event = 0;
-}
-
-// Utils
-
-float Shake(float offset, float speed, float intensity) {
-  return sin((GetTime() + offset) * speed) * intensity;
-}
-
-float TimeSince(float x) {
-  return GetTime() - x;
-}
-
-void DrawCenteredText(char* str, int size, int x, int y, Color color) {
-  DrawText(str, WINDOW_WIDTH / 2 - MeasureText(str, size) / 2 + x, y, size, color);
 }
 
 // Assets
 
-void LoadAssets(Game *g) {
-  g->assets.music      = LoadMusicStream("assets/soundtrack.mp3");
-  g->assets.enemy      = LoadTexture("assets/enemy.png");
-  g->assets.player     = LoadTexture("assets/player.png");
-  g->assets.s_key      = LoadSound("assets/key.wav");
-  g->assets.s_undo     = LoadSound("assets/undo.wav");
-  g->assets.s_enter    = LoadSound("assets/enter.wav");
-  g->assets.s_hit      = LoadSound("assets/hit.wav");
-  g->assets.s_nop      = LoadSound("assets/nop.wav");
-  g->assets.s_death    = LoadSound("assets/death.wav");
-  g->assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
-  g->assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
-  g->assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
-  g->assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
-  g->assets.s_e_shoot  = LoadSound("assets/shoot.wav");
+void LoadAssets() {
+  g.assets.music      = LoadMusicStream("assets/soundtrack.mp3");
+  g.assets.enemy      = LoadTexture("assets/enemy.png");
+  g.assets.player     = LoadTexture("assets/player.png");
+  g.assets.s_key      = LoadSound("assets/key.wav");
+  g.assets.s_undo     = LoadSound("assets/undo.wav");
+  g.assets.s_enter    = LoadSound("assets/enter.wav");
+  g.assets.s_hit      = LoadSound("assets/hit.wav");
+  g.assets.s_nop      = LoadSound("assets/nop.wav");
+  g.assets.s_death    = LoadSound("assets/death.wav");
+  g.assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
+  g.assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
+  g.assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
+  g.assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
+  g.assets.s_e_shoot  = LoadSound("assets/shoot.wav");
 }
 
-void UnloadAssets(Game *g) {
-  UnloadMusicStream(g->assets.music);
-  UnloadTexture(g->assets.player);
-  UnloadTexture(g->assets.enemy);
-  UnloadSound(g->assets.s_key);
-  UnloadSound(g->assets.s_undo);
-  UnloadSound(g->assets.s_enter);
-  UnloadSound(g->assets.s_hit);
-  UnloadSound(g->assets.s_nop);
-  UnloadSound(g->assets.s_death);
-  UnloadSound(g->assets.s_shoot[0]);
-  UnloadSound(g->assets.s_shoot[1]);
-  UnloadSound(g->assets.s_shoot[2]);
-  UnloadSound(g->assets.s_shoot[3]);
-  UnloadSound(g->assets.s_e_shoot);
+void UnloadAssets() {
+  UnloadMusicStream(g.assets.music);
+  UnloadTexture(g.assets.player);
+  UnloadTexture(g.assets.enemy);
+  UnloadSound(g.assets.s_key);
+  UnloadSound(g.assets.s_undo);
+  UnloadSound(g.assets.s_enter);
+  UnloadSound(g.assets.s_hit);
+  UnloadSound(g.assets.s_nop);
+  UnloadSound(g.assets.s_death);
+  UnloadSound(g.assets.s_shoot[0]);
+  UnloadSound(g.assets.s_shoot[1]);
+  UnloadSound(g.assets.s_shoot[2]);
+  UnloadSound(g.assets.s_shoot[3]);
+  UnloadSound(g.assets.s_e_shoot);
 }
 
 // Animation
@@ -660,12 +595,27 @@ void StartTransition(Stage to) {
   transitioned = 0;
 }
 
-void DrawTransition(Game *g) {
+void DrawTransition() {
   if (!transition.running) return;
   float x = AnimationKeyFrame(&transition);
   if (x >= transition.duration / 2 && !transitioned) {
-    SetStage(g, transition_to);
+    SetStage(transition_to);
     transitioned = 1;
   }
+  // TODO Transition varieties
   DrawRectangle(-WINDOW_WIDTH + x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+}
+
+// Utils
+
+float Shake(float offset, float speed, float intensity) {
+  return sin((GetTime() + offset) * speed) * intensity;
+}
+
+float TimeSince(float x) {
+  return GetTime() - x;
+}
+
+void DrawCenteredText(char* str, int size, int x, int y, Color color) {
+  DrawText(str, WINDOW_WIDTH / 2 - MeasureText(str, size) / 2 + x, y, size, color);
 }
