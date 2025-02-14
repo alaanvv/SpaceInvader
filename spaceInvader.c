@@ -37,6 +37,10 @@ typedef enum {
   NORMAL, HARD, HARDCORE
 } Mode;
 
+typedef enum {
+  T_LTR, T_RTL, T_BTT, T_TTB
+} TransitionType;
+
 typedef struct {
   Rectangle pos, bullet;
   int hp, shooting;
@@ -93,7 +97,7 @@ void  LoadAssets();
 void  UnloadAssets();
 void  StartAnimation(Animation* anim);
 float AnimationKeyFrame(Animation* anim);
-void  StartTransition(Stage to);
+void StartTransition(Stage to, TransitionType type);
 void  DrawTransition();
 float Shake(float x, float speed, float intensity);
 float TimeSince(float x);
@@ -109,6 +113,7 @@ char  rank[5][16] = { 0 };
 Animation a_player_out = { 0, 0, 2 };
 Animation a_player_inn = { 0, 0, 1 };
 Animation transition = { 0, 0, 0.5 };
+TransitionType transition_type;
 Stage transition_to;
 int transitioned = 0;
 
@@ -273,7 +278,7 @@ void StageStart() {
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     if (remaining) PlaySound(g.assets.s_nop);
     else {
-      StartTransition(MODE_SCREEN);
+      StartTransition(MODE_SCREEN, T_LTR);
       PlaySound(g.assets.s_enter);
     }
   }
@@ -320,7 +325,7 @@ void StageMode() {
   }
 
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    StartTransition(GAME_SCREEN);
+    StartTransition(GAME_SCREEN, T_BTT);
     g.mode = selected;
     PlaySound(g.assets.s_enter);
   }
@@ -345,7 +350,7 @@ void StageMode() {
 
 void StageEnd() {
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    StartTransition(g.winner ? GAME_SCREEN : START_SCREEN);
+    StartTransition(g.winner ? GAME_SCREEN : START_SCREEN, g.winner ? T_BTT : T_RTL);
     PlaySound(g.assets.s_enter);
   }
 
@@ -596,8 +601,9 @@ float AnimationKeyFrame(Animation* anim) {
 
 // Transition
 
-void StartTransition(Stage to) {
+void StartTransition(Stage to, TransitionType type) {
   StartAnimation(&transition);
+  transition_type = type;
   transition_to = to;
   transitioned = 0;
 }
@@ -609,8 +615,15 @@ void DrawTransition() {
     SetStage(transition_to);
     transitioned = 1;
   }
-  // TODO Transition varieties
-  DrawRectangle(-WINDOW_WIDTH + x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+
+  if (transition_type == T_LTR)
+    DrawRectangle(-WINDOW_WIDTH + x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+  if (transition_type == T_RTL)
+    DrawRectangle(+WINDOW_WIDTH - x / transition.duration * 2 * WINDOW_WIDTH, 0, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+  if (transition_type == T_TTB)
+    DrawRectangle(0, -WINDOW_HEIGHT + x / transition.duration * 2 * WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
+  if (transition_type == T_BTT)
+    DrawRectangle(0, +WINDOW_HEIGHT - x / transition.duration * 2 * WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, BLACK);
 }
 
 // Utils
