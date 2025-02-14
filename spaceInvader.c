@@ -24,7 +24,7 @@
 #define BACKGROUND_COLOR (Color) { 10, 0, 10 }
 #define PLAYER_BULLET_COLOR WHITE
 #define ENEMY_BULLET_COLOR  GREEN
-#define DAMAGE_REDNESS 8
+#define DAMAGE_REDNESS 6
 #define PLAYER_SPEED 4
 
 // ---
@@ -85,6 +85,8 @@ void  EnemyShoot();
 void  PlayerShoot();
 void  EnemiesBulletCollision();
 void  PlayerBulletCollision();
+void  TakeDamage();
+void  WinGame();
 int   StageInEvent();
 void  SetStage(Stage stage);
 void  LoadAssets();
@@ -493,18 +495,7 @@ void PlayerShoot() {
 void EnemiesBulletCollision() {
   if (!player_immune && CheckCollisionRecs(g.player.pos, g.enemy.bullet)) {
     g.enemy.shooting = 0;
-    player_immune = 30;
-    background_color.r += DAMAGE_REDNESS;
-    if (--g.player.hp)
-      PlaySound(g.assets.s_hit);
-    else {
-      // TODO Make death a function
-      g.winner = 0;
-      SetStage(END_SCREEN);
-      PlaySound(g.assets.s_death);
-      WriteRank();
-      g.pts = 0;
-    }
+    TakeDamage();
   }
 
   if (CheckCollisionRecs(g.enemy.bullet, g.borders[1]))
@@ -512,17 +503,33 @@ void EnemiesBulletCollision() {
 }
 
 void PlayerBulletCollision() {
-  if (CheckCollisionRecs(g.enemy.pos, g.player.bullet)) {
-    g.winner = 1;
-    StartAnimation(&a_player_out);
-    SetStage(END_SCREEN);
-    PlaySound(g.assets.s_hit);
-    g.pts += 100 * (g.mode + 1);
-    g.player.shooting = 0;
-  }
+  if (CheckCollisionRecs(g.enemy.pos, g.player.bullet))
+    WinGame();
 
   if (CheckCollisionRecs(g.player.bullet, g.borders[0]))
     g.player.shooting = 0;
+}
+
+void TakeDamage() {
+  player_immune = 30;
+  background_color.r += DAMAGE_REDNESS;
+  if (--g.player.hp) PlaySound(g.assets.s_hit);
+  else {
+    SetStage(END_SCREEN);
+    PlaySound(g.assets.s_death);
+    g.winner = 0;
+    WriteRank();
+    g.pts = 0;
+  }
+}
+
+void WinGame() {
+  StartAnimation(&a_player_out);
+  SetStage(END_SCREEN);
+  PlaySound(g.assets.s_hit);
+  g.winner = 1;
+  g.pts += 100 * (g.mode + 1);
+  g.player.shooting = 0;
 }
 
 // Stage
