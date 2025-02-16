@@ -26,6 +26,10 @@
 #define ENEMY_BULLET_COLOR  GREEN
 #define DAMAGE_REDNESS 6
 #define PLAYER_SPEED 4
+#define PLAYER_BULLET_SPEED 30
+#define MAX_ENEMIES 3
+#define MAX_ENEMIES_LINES 10
+#define SHOW_HP 0
 
 // ---
 
@@ -48,6 +52,11 @@ typedef struct {
 } Ship;
 
 typedef struct {
+  Ship enemy [MAX_ENEMIES];
+} LineEnemy;
+
+
+typedef struct {
   Texture2D player, enemy;
   Sound s_key, s_undo, s_enter, s_hit;
   Sound s_nop, s_death, s_shoot[4], s_e_shoot;
@@ -57,7 +66,8 @@ typedef struct {
 typedef struct {
   Mode mode;
   Rectangle borders[4];
-  Ship player, enemy;
+  Ship player;
+  LineEnemy line[MAX_ENEMIES_LINES];
   Assets assets;
   Stage stage;
   char nick[3];
@@ -79,6 +89,7 @@ void  StageStart();
 void  StageMode();
 void  StageEnd();
 void  StageGame();
+void  DrawHUD();
 void  DrawEnemies();
 void  DrawPlayer();
 void  DrawBullets();
@@ -97,7 +108,7 @@ void  LoadAssets();
 void  UnloadAssets();
 void  StartAnimation(Animation* anim);
 float AnimationKeyFrame(Animation* anim);
-void StartTransition(Stage to, TransitionType type);
+void  StartTransition(Stage to, TransitionType type);
 void  DrawTransition();
 float Shake(float x, float speed, float intensity);
 float TimeSince(float x);
@@ -168,9 +179,7 @@ void InitGame() {
   g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
 
   g.player.speed  = PLAYER_SPEED;
-  g.player.bullet_speed = 10;
-  g.enemy.speed  = 3;
-  g.enemy.bullet_speed = 5;
+  g.player.bullet_speed = PLAYER_BULLET_SPEED;
 
   for (int i = 0; i < NUM_STARS; i++) {
     stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
@@ -184,7 +193,16 @@ void InitMatch() {
   g.winner = 0;
   g.pts = 0;
   g.player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
-
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+    g.line[i].enemy[j].bullet_speed = 10 ;
+    g.line[i].enemy[j].hp = 0;
+    g.line[i].enemy[j].last_shoot = 0;
+    g.line[i].enemy[j].shoot_timer = 0;
+    g.line[i].enemy[j].shooting = 0;
+    g.line[i].enemy[j].speed = 3;
+    }
+  }
   ReadFiles();
 }
 
@@ -367,9 +385,13 @@ void StageEnd() {
 
   DrawCenteredText(message, 80, Shake(-0.2, 13, 4), 250 + Shake(-0.2, 5, 5), color_d);
   DrawCenteredText(message, 80, Shake(0,    13, 4), 250 + Shake(0,    5, 5), color);
-  DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
-  if (g.winner) DrawPlayer();
-  else          DrawEnemies();
+  if (g.winner) {
+  DrawCenteredText("- Hit Enter to the next level -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
+  DrawPlayer();
+  } else {
+  DrawCenteredText("- Hit Enter and return to menu -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
+    DrawEnemies();
+  }
 }
 
 void StageGame() {
@@ -382,20 +404,27 @@ void StageGame() {
     g.player.shooting = 0;
     player_immune     = 0;
 
-    g.enemy.pos    = (Rectangle) { 0, 15, SHIP_WIDTH, SHIP_HEIGHT };
-    g.enemy.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-    g.enemy.shooting = 0;
     enemy_direction  = 1;
 
     a_player_out.running = 0;    StartAnimation(&a_player_inn);
 
-    g.enemy.last_shoot = GetTime();
-
     // Adjusts based on mode
     g.player.hp          = g.mode == NORMAL ? 3 : g.mode == HARD ? 2   : 1;
-    g.enemy.speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
-    g.enemy.bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
-    g.enemy.shoot_timer  = g.mode == NORMAL ? 3 : g.mode == HARD ? 1   : 0.1;
+
+    for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+      for (int j = 0; j < MAX_ENEMIES; j++) {
+      g.line[i].enemy[j].hp = 1;
+      g.line[i].enemy[j].shooting = 0;
+      g.line[i].enemy[j].last_shoot = GetTime() + GetRandomValue(0, 10);
+      g.line[i].enemy[j].pos = (Rectangle) { i * 50, 15 + j * 50, SHIP_WIDTH, SHIP_HEIGHT };
+      g.line[i].enemy[j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+      g.line[i].enemy[j].bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
+      g.line[i].enemy[j].shoot_timer  = g.mode == NORMAL ? 6 : g.mode == HARD ? 4   : 2;
+      g.line[i].enemy[j].speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
+
+      }
+    }
+
     background_color.r += g.mode * DAMAGE_REDNESS;
     star_speed         *= g.mode + 1;
   }
@@ -409,10 +438,19 @@ void StageGame() {
   DrawBullets();
   DrawEnemies();
   DrawPlayer();
+  DrawHUD();
 }
 
 // Draw
 
+void DrawHUD() {
+  char buffer[32];
+  if (SHOW_HP) {
+    sprintf(buffer, "%d HP", g.player.hp);
+    DrawText(buffer, 10, 10, 30, WHITE);
+  }
+}
+// quem sabe pode
 void DrawEnemies() {
   Vector2 frame_size = { 32, 32 };
 
@@ -425,8 +463,15 @@ void DrawEnemies() {
   }
 
   Rectangle frame_rec = { frame * frame_size.x, 0, frame_size.x, frame_size.y };
-  Rectangle pos_rec   = { g.enemy.pos.x, g.enemy.pos.y, 32, 32 };
-  DrawTexturePro(g.assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if(g.line[i].enemy[j].hp == 1) {
+      Rectangle pos_rec   = { g.line[i].enemy[j].pos.x, g.line[i].enemy[j].pos.y, 32, 32 };
+      DrawTexturePro(g.assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+      }
+    }
+  }
 }
 
 void DrawPlayer() {
@@ -444,7 +489,12 @@ void DrawPlayer() {
 
 void DrawBullets() {
   if (g.player.shooting) DrawRectangleRec(g.player.bullet, PLAYER_BULLET_COLOR);
-  if (g.enemy.shooting)  DrawRectangleRec(g.enemy.bullet,  ENEMY_BULLET_COLOR);
+
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+     if (g.line[i].enemy[j].shooting && g.line[i].enemy[j].hp == 1 )  DrawRectangleRec(g.line[i].enemy[j].bullet,  ENEMY_BULLET_COLOR);
+    }
+  }
 }
 
 void DrawStars() {
@@ -462,25 +512,37 @@ void PlayerMovement() {
 }
 
 void EnemiesMovement() {
-  if      (CheckCollisionRecs(g.enemy.pos, g.borders[2])) enemy_direction =  1;
-  else if (CheckCollisionRecs(g.enemy.pos, g.borders[3])) enemy_direction = -1;
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if      (CheckCollisionRecs(g.line[i].enemy[j].pos, g.borders[2])) enemy_direction =  1;
+      else if (CheckCollisionRecs(g.line[i].enemy[j].pos, g.borders[3])) enemy_direction = -1;
+    }
+  }
 
-  g.enemy.pos.x += g.enemy.speed * enemy_direction;
+for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+  for (int j = 0; j < MAX_ENEMIES; j++) {
+      g.line[i].enemy[j].pos.x += g.line[i].enemy[j].speed * enemy_direction;
+    }
+  }
 }
 
 void EnemyShoot() {
-  if (g.enemy.shooting) {
-    EnemiesBulletCollision();
-    g.enemy.bullet.y += g.enemy.bullet_speed;
-    return;
-  }
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if (g.line[i].enemy[j].shooting) {
+        EnemiesBulletCollision();
+        g.line[i].enemy[j].bullet.y += g.line[i].enemy[j].bullet_speed;
+        continue;
+      }
 
-  if (TimeSince(g.enemy.last_shoot) < g.enemy.shoot_timer) return;
-  g.enemy.bullet.x = g.enemy.pos.x + g.enemy.pos.width  / 2;
-  g.enemy.bullet.y = g.enemy.pos.y + g.enemy.pos.height / 2;
-  g.enemy.shooting = 1;
-  g.enemy.last_shoot = GetTime();
-  PlaySound(g.assets.s_e_shoot);
+      if (TimeSince(g.line[i].enemy[j].last_shoot) < g.line[i].enemy[j].shoot_timer || g.line[i].enemy[j].hp == 0) continue;
+      g.line[i].enemy[j].bullet.x = g.line[i].enemy[j].pos.x + g.line[i].enemy[j].pos.width  / 2;
+      g.line[i].enemy[j].bullet.y = g.line[i].enemy[j].pos.y + g.line[i].enemy[j].pos.height / 2;
+      g.line[i].enemy[j].shooting = 1;
+      g.line[i].enemy[j].last_shoot = GetTime();
+      PlaySound(g.assets.s_e_shoot);
+    }
+  }
 }
 
 void PlayerShoot() {
@@ -498,21 +560,39 @@ void PlayerShoot() {
 }
 
 void EnemiesBulletCollision() {
-  if (!player_immune && CheckCollisionRecs(g.player.pos, g.enemy.bullet)) {
-    g.enemy.shooting = 0;
-    TakeDamage();
-  }
 
-  if (CheckCollisionRecs(g.enemy.bullet, g.borders[1]))
-    g.enemy.shooting = 0;
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if (!player_immune && CheckCollisionRecs(g.player.pos, g.line[i].enemy[j].bullet) && g.line[i].enemy[j].shooting) {
+        g.line[i].enemy[j].shooting = 0;
+        TakeDamage();
+      }
+
+      if (CheckCollisionRecs(g.line[i].enemy[j].bullet, g.borders[1]))
+        g.line[i].enemy[j].shooting = 0;
+    }
+  }
 }
 
-void PlayerBulletCollision() {
-  if (CheckCollisionRecs(g.enemy.pos, g.player.bullet))
-    WinGame();
 
-  if (CheckCollisionRecs(g.player.bullet, g.borders[0]))
-    g.player.shooting = 0;
+void PlayerBulletCollision() {
+  for (int i = 0; i < MAX_ENEMIES_LINES; i ++) {
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if (CheckCollisionRecs(g.line[i].enemy[j].pos, g.player.bullet) && g.line[i].enemy[j]. hp == 1) {
+      g.line[i].enemy[j].hp = 0;
+      g.player.shooting = 0;
+      for (int a = 0; a < MAX_ENEMIES_LINES; a++) {
+        for (int c = 0; c < MAX_ENEMIES; c++) {
+          if (g.line[a].enemy[c].hp == 1) return;
+        }
+      }
+      WinGame();
+    }
+
+    if (CheckCollisionRecs(g.player.bullet, g.borders[0]))
+      g.player.shooting = 0;
+    }
+  }
 }
 
 void TakeDamage() {
