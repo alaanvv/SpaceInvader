@@ -33,6 +33,7 @@
 #define MAX_ENEMY_COLUMNS 3
 #define MAX_ENEMY_LINES 10
 #define SHOW_HP 0
+#define SPICY_MODE 1
 
 // ---
 
@@ -310,8 +311,8 @@ void StageStart() {
   strcpy(nick_buf, g.nick);
   if (strlen(g.nick) < NAME_SIZE) strcat(nick_buf, "_");
 
-  DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
-  DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
+  DrawCenteredText(SPICY_MODE ? "SPICY INVADERS" : "SPACE INVADERS", 69, 0, 40, DARKBROWN);
+  DrawCenteredText(SPICY_MODE ? "SPICY INVADERS" : "SPACE INVADERS", 70, 0, 30, YELLOW);
   DrawCenteredText(label_buf, 40, 0, 170, remaining ? WHITE : PURPLE);
   if (!remaining) DrawCenteredText(nick_buf,  40, Shake(-0.2, 13, 3), 220 + Shake(-0.2, 5, 4), DARKPURPLE);
   DrawCenteredText(nick_buf,  40, Shake(0, 13, 3), 220 + Shake(0, 5, 4), remaining ? WHITE : PURPLE);
@@ -345,8 +346,8 @@ void StageMode() {
     PlaySound(g.assets.s_enter);
   }
 
-  DrawCenteredText("SPACE INVADERS", 69, 0, 40, DARKBROWN);
-  DrawCenteredText("SPACE INVADERS", 70, 0, 30, YELLOW);
+  DrawCenteredText("SPICY INVADERS", 69, 0, 40, DARKBROWN);
+  DrawCenteredText("SPICY INVADERS", 70, 0, 30, YELLOW);
 
   char buffer[32];
   for (int i = 0; i <= HARDCORE; i++) {
