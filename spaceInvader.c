@@ -47,7 +47,7 @@ typedef enum {
 typedef struct {
   Rectangle pos, bullet;
   int hp, shooting;
-  float next_shoot, speed, bullet_speed;
+  float next_shoot;
 } Ship;
 
 typedef struct {
@@ -64,13 +64,14 @@ typedef struct {
 } Assets;
 
 typedef struct {
-  Mode mode;
-  Rectangle borders[4];
   Ship player, enemies[12][6];
+  Rectangle borders[4];
   Barrier barriers[4];
-  Stage stage;
   char nick[3];
-  int winner, pts, timer, level, enemy_columns, enemy_lines, shoot_timer;
+  Stage stage;
+  Mode mode;
+  float enemy_speed, enemy_bullet_speed;
+  int winner, pts, timer, level, enemy_columns, enemy_lines, enemy_shoot_timer;
 } Game;
 
 typedef struct {
@@ -167,7 +168,7 @@ int main() {
 
 // ---
 
-// Inicializar o jogo; Roda apenas uma vez
+// Roda apenas uma vez pra inicializar o jogo
 void InitGame() {
   InitAudioDevice();
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space Invaders");
@@ -182,9 +183,6 @@ void InitGame() {
   g.borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
   g.borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
   g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
-
-  g.player.speed  = 5;
-  g.player.bullet_speed = 15;
 
   for (int i = 0; i < NUM_STARS; i++) {
     stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
@@ -512,12 +510,12 @@ void GenerateMap() {
       g.enemies[i][j].next_shoot = GetTime() + GetRandomValue(0, 4);
       g.enemies[i][j].pos = (Rectangle) { i * 60, 15 + j * 60, SHIP_WIDTH, SHIP_HEIGHT };
       g.enemies[i][j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-      g.enemies[i][j].bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
-      g.enemies[i][j].bullet_speed *= 1 + MIN(0.2, g.level/10.0);
-      g.shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
-      g.shoot_timer *= 1 - MIN(0.2, g.level/10.0);
-      g.enemies[i][j].speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
-      g.enemies[i][j].speed *= 1 + MIN(0.2, g.level/10.0);
+      g.enemy_bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
+      g.enemy_bullet_speed *= 1 + MIN(0.2, g.level/10.0);
+      g.enemy_shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
+      g.enemy_shoot_timer *= 1 - MIN(0.2, g.level/10.0);
+      g.enemy_speed  = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
+      g.enemy_speed *= 1 + MIN(0.2, g.level/10.0);
     }
   }
 
@@ -530,8 +528,8 @@ void GenerateMap() {
 }
 
 void PlayerMovement() {
-  if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g.player.pos, g.borders[3])) g.player.pos.x += g.player.speed;
-  if ((IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  && !CheckCollisionRecs(g.player.pos, g.borders[2])) g.player.pos.x -= g.player.speed;
+  if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g.player.pos, g.borders[3])) g.player.pos.x += 5;
+  if ((IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  && !CheckCollisionRecs(g.player.pos, g.borders[2])) g.player.pos.x -= 5;
 }
 
 void EnemiesMovement() {
@@ -544,7 +542,7 @@ void EnemiesMovement() {
 
   for (int i = 0; i < g.enemy_columns; i++)
     for (int j = 0; j < g.enemy_lines; j++)
-      g.enemies[i][j].pos.x += g.enemies[i][j].speed * enemy_direction;
+      g.enemies[i][j].pos.x += g.enemy_speed * enemy_direction;
 }
 
 void EnemyShoot() {
@@ -552,7 +550,7 @@ void EnemyShoot() {
     for (int j = 0; j < g.enemy_lines; j++) {
       if (g.enemies[i][j].shooting) {
         EnemiesBulletCollision();
-        g.enemies[i][j].bullet.y += g.enemies[i][j].bullet_speed;
+        g.enemies[i][j].bullet.y += g.enemy_bullet_speed;
         continue;
       }
 
@@ -561,7 +559,7 @@ void EnemyShoot() {
       g.enemies[i][j].bullet.x = g.enemies[i][j].pos.x + g.enemies[i][j].pos.width  / 2;
       g.enemies[i][j].bullet.y = g.enemies[i][j].pos.y + g.enemies[i][j].pos.height / 2;
       g.enemies[i][j].shooting = 1;
-      g.enemies[i][j].next_shoot = GetTime() + g.shoot_timer;
+      g.enemies[i][j].next_shoot = GetTime() + g.enemy_shoot_timer;
       PlaySound(assets.s_e_shoot);
     }
   }
@@ -570,7 +568,7 @@ void EnemyShoot() {
 void PlayerShoot() {
   if (g.player.shooting) {
     PlayerBulletCollision();
-    g.player.bullet.y -= g.player.bullet_speed;
+    g.player.bullet.y -= 15;
     return;
   }
 
