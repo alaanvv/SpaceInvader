@@ -47,7 +47,7 @@ typedef enum {
 typedef struct {
   Rectangle pos, bullet;
   int hp, shooting;
-  float last_shoot, shoot_timer, speed, bullet_speed;
+  float next_shoot, speed, bullet_speed;
 } Ship;
 
 typedef struct {
@@ -70,7 +70,7 @@ typedef struct {
   Barrier barriers[4];
   Stage stage;
   char nick[3];
-  int winner, pts, timer, level, enemy_columns, enemy_lines;
+  int winner, pts, timer, level, enemy_columns, enemy_lines, shoot_timer;
 } Game;
 
 typedef struct {
@@ -509,13 +509,13 @@ void GenerateMap() {
       g.enemies[i][j].hp = 1;
       if (i >= g.enemy_columns || j >= g.enemy_lines) g.enemies[i][j].hp = 0;
       g.enemies[i][j].shooting = 0;
-      g.enemies[i][j].last_shoot = GetTime() - GetRandomValue(0, 4);
+      g.enemies[i][j].next_shoot = GetTime() + GetRandomValue(0, 4);
       g.enemies[i][j].pos = (Rectangle) { i * 60, 15 + j * 60, SHIP_WIDTH, SHIP_HEIGHT };
       g.enemies[i][j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
       g.enemies[i][j].bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
       g.enemies[i][j].bullet_speed *= 1 + MIN(0.2, g.level/10.0);
-      g.enemies[i][j].shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
-      g.enemies[i][j].shoot_timer *= 1 - MIN(0.2, g.level/10.0);
+      g.shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
+      g.shoot_timer *= 1 - MIN(0.2, g.level/10.0);
       g.enemies[i][j].speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
       g.enemies[i][j].speed *= 1 + MIN(0.2, g.level/10.0);
     }
@@ -557,11 +557,11 @@ void EnemyShoot() {
       }
 
       // Atira se o inimigo estiver vivo e no tempo
-      if (TimeSince(g.enemies[i][j].last_shoot) < g.enemies[i][j].shoot_timer || !g.enemies[i][j].hp || (g.enemies[i][j+1].hp && j+1 < LEN(g.enemies[0]))) continue;
+      if (TimeSince(g.enemies[i][j].next_shoot) < 0 || !g.enemies[i][j].hp || (g.enemies[i][j+1].hp && j+1 < LEN(g.enemies[0]))) continue;
       g.enemies[i][j].bullet.x = g.enemies[i][j].pos.x + g.enemies[i][j].pos.width  / 2;
       g.enemies[i][j].bullet.y = g.enemies[i][j].pos.y + g.enemies[i][j].pos.height / 2;
       g.enemies[i][j].shooting = 1;
-      g.enemies[i][j].last_shoot = GetTime();
+      g.enemies[i][j].next_shoot = GetTime() + g.shoot_timer;
       PlaySound(assets.s_e_shoot);
     }
   }
