@@ -1,9 +1,3 @@
-// TODO
-// Comentar
-// Volume
-// Sons
-// Niveis
-
 #include "raylib.h"
 #include <string.h>
 #include <stdio.h>
@@ -11,11 +5,14 @@
 #include <math.h>
 
 #define CIRCULAR_CLAMP(x, y, z) ((y < x) ? z : ((y > z) ? x : y))
+#define MIN(x, y) (x < y ? x : y)
+#define MAX(x, y) (x < y ? y : x)
+#define LEN(x)    (sizeof(x) / sizeof(x[0]))
 
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
 #define BULLET_WIDTH  10
-#define BULLET_HEIGHT 15
+#define BULLET_HEIGHT 10
 #define SHIP_WIDTH    32
 #define SHIP_HEIGHT   32
 
@@ -23,24 +20,15 @@
 #define RANK_PATH "./rank.txt"
 #define NAME_SIZE 3
 
-#define NUM_STARS  50
-#define STAR_SPEED 0.3
-#define STAR_SIZE  2
+#define NUM_STARS  60
+#define STAR_SPEED 0.25
 #define BACKGROUND_COLOR (Color) { 10, 0, 10 }
-#define PLAYER_BULLET_COLOR WHITE
-#define ENEMY_BULLET_COLOR  GREEN
 #define DAMAGE_REDNESS 6
 #define VOLUME 0.5
 
-#define PLAYER_BULLET_SPEED 10
-#define PLAYER_SPEED 4
-
-#define MAX_ENEMY_LINES   4
-#define MAX_ENEMY_COLUMNS 7
-#define MAX_BARRIERS 3
-
-#define SPICY_MODE 1
-#define SHOW_HP 1
+#define ALL_ENEMIES_SHOOT 0
+#define SPICY_MODE        1
+#define SHOW_HP           1
 
 // ---
 
@@ -71,18 +59,18 @@ typedef struct {
   Texture2D player, enemy, barrier[4];
   Sound s_key, s_undo, s_enter, s_hit;
   Sound s_nop, s_death, s_shoot[4], s_e_shoot;
+  Sound s_damage, s_shield, s_break;
   Music music;
 } Assets;
 
 typedef struct {
   Mode mode;
   Rectangle borders[4];
-  Ship player, enemies[MAX_ENEMY_COLUMNS][MAX_ENEMY_LINES];
-  Barrier barriers[MAX_BARRIERS];
-  Assets assets;
+  Ship player, enemies[12][6];
+  Barrier barriers[4];
   Stage stage;
   char nick[3];
-  int winner, pts;
+  int winner, pts, timer, level, enemy_columns, enemy_lines;
 } Game;
 
 typedef struct {
@@ -105,6 +93,7 @@ void  DrawPlayer();
 void  DrawBullets();
 void  DrawStars();
 void  DrawBarriers();
+void  GenerateMap();
 void  PlayerMovement();
 void  EnemiesMovement();
 void  EnemyShoot();
@@ -126,9 +115,10 @@ float Shake(float x, float speed, float intensity);
 float TimeSince(float x);
 void  DrawCenteredText(char* str, int size, int x, int y, Color color);
 
-// ---
+// --- Variáveis Globais
 
-Game g;
+Game g = { .nick = "\0" };
+Assets assets;
 
 char saves[5][16] = { 0 };
 char  rank[5][16] = { 0 };
@@ -156,11 +146,12 @@ int main() {
   SetStage(START_SCREEN);
 
   while (!WindowShouldClose()) {
-    UpdateMusicStream(g.assets.music);
+    UpdateMusicStream(assets.music);
 
     BeginDrawing();
     ClearBackground(background_color);
     DrawStars();
+    // Onde os estados do jogo são loopados até o usuário sair
     if      (g.stage == START_SCREEN) StageStart();
     else if (g.stage == MODE_SCREEN)  StageMode();
     else if (g.stage == END_SCREEN)   StageEnd();
@@ -174,24 +165,26 @@ int main() {
   return 0;
 }
 
-// Initialization
+// ---
 
+// Inicializar o jogo; Roda apenas uma vez
 void InitGame() {
   InitAudioDevice();
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space Invaders");
   SetTargetFPS(60);
   LoadAssets();
-  SetMusicVolume(g.assets.music, VOLUME * 0.3);
+  SetMusicVolume(assets.music, VOLUME * 0.3);
+  SetSoundVolume(assets.s_e_shoot, 0.2);
   SetMasterVolume(VOLUME);
-  PlayMusicStream(g.assets.music);
+  PlayMusicStream(assets.music);
 
   g.borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
   g.borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
   g.borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
   g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
 
-  g.player.speed  = PLAYER_SPEED;
-  g.player.bullet_speed = PLAYER_BULLET_SPEED;
+  g.player.speed  = 5;
+  g.player.bullet_speed = 15;
 
   for (int i = 0; i < NUM_STARS; i++) {
     stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
@@ -199,14 +192,13 @@ void InitGame() {
   }
 }
 
-// Rank
-
+// Le os arquivos de pontuacao
 void ReadRank() {
-  // Create file if dont exist
+  // Cria o arquivo se ele nao existir
   FILE* f_save = fopen(SAVE_PATH, "a");
   FILE* f_rank = fopen(RANK_PATH, "a");
 
-  // Read from file
+  // Le o arquivo
   f_save = fopen(SAVE_PATH, "r");
   f_rank = fopen(RANK_PATH, "r");
 
@@ -219,6 +211,7 @@ void ReadRank() {
   fclose(f_rank);
 }
 
+// Escreve a pontuacao atual nos arquivos
 void WriteRank() {
   char new_save[32];
   sprintf(new_save, "%s %d\n", g.nick, g.pts);
@@ -248,52 +241,54 @@ void WriteRank() {
   fclose(f_rank);
 }
 
-// Stage
+// --- Funcoes de cada tela que rodam todo frame
 
+// Menu
 void StageStart() {
+  // "if (StageInEvent())" cria um bloco de código que só executa no primeiro frame do estágio
   if (StageInEvent()) {
-    g.nick[0] = '\0';
+    // Inicializa valores toda vez que se entra no menu principal
     background_color = BACKGROUND_COLOR;
     star_speed = STAR_SPEED;
     g.winner = 0;
     g.pts = 0;
+    g.level = 0;
     g.player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
     ReadRank();
   }
 
   int remaining = NAME_SIZE - strlen(g.nick);
 
-  // Letter from a-Z
   int key = toupper(GetCharPressed());
   if (key >= 65 && key <= 90) {
-    if (!remaining) PlaySound(g.assets.s_nop); // Play NOP when nothing happens
+    if (!remaining) PlaySound(assets.s_nop);
     else {
       g.nick[strlen(g.nick) + 1] = '\0';
       g.nick[strlen(g.nick)] = key;
-      PlaySound(g.assets.s_key);
+      PlaySound(assets.s_key);
     }
   }
 
-  // Swap between showing the rank or last games
+  // Alterna em mostrar o ranking ou os jogos anteriores
   static int rank_toggle = 0;
   if (IsKeyPressed(KEY_TAB)) {
     rank_toggle = !rank_toggle;
-    PlaySound(g.assets.s_key);
+    PlaySound(assets.s_key);
   }
 
   if (IsKeyPressed(KEY_BACKSPACE)) {
-    if (!strlen(g.nick)) PlaySound(g.assets.s_nop);
+    if (!strlen(g.nick)) PlaySound(assets.s_nop);
     else {
       g.nick[strlen(g.nick) - 1] = '\0';
-      PlaySound(g.assets.s_undo);
+      PlaySound(assets.s_undo);
     }
   }
 
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-    if (remaining) PlaySound(g.assets.s_nop);
+    if (remaining) PlaySound(assets.s_nop);
     else {
       StartTransition(MODE_SCREEN, T_LTR);
-      PlaySound(g.assets.s_enter);
+      PlaySound(assets.s_enter);
     }
   }
 
@@ -317,29 +312,30 @@ void StageStart() {
   for (int i = 0; i < 5; i++) DrawCenteredText(rank_toggle ? rank[i] : saves[i], 50, 0, 300 + 55 * i, PURPLE);
 }
 
+// Selecao de modo
 void StageMode() {
   static Mode selected = NORMAL;
 
   if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) {
-    if (selected == HARDCORE) PlaySound(g.assets.s_nop);
+    if (selected == HARDCORE) PlaySound(assets.s_nop);
     else {
       selected++;
-      PlaySound(g.assets.s_key);
+      PlaySound(assets.s_key);
     }
   }
 
   if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) {
-    if (!selected) PlaySound(g.assets.s_nop);
+    if (!selected) PlaySound(assets.s_nop);
     else {
       selected--;
-      PlaySound(g.assets.s_key);
+      PlaySound(assets.s_key);
     }
   }
 
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     StartTransition(GAME_SCREEN, T_BTT);
     g.mode = selected;
-    PlaySound(g.assets.s_enter);
+    PlaySound(assets.s_enter);
   }
 
   DrawCenteredText(SPICY_MODE ? "SPICY INVADERS" : "SPACE INVADERS", 69, 0, 40, DARKBROWN);
@@ -360,10 +356,11 @@ void StageMode() {
   }
 }
 
+// Tela Final
 void StageEnd() {
   if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
     StartTransition(g.winner ? GAME_SCREEN : START_SCREEN, g.winner ? T_BTT : T_RTL);
-    PlaySound(g.assets.s_enter);
+    PlaySound(assets.s_enter);
   }
 
   if (!g.winner) EnemiesMovement();
@@ -377,60 +374,34 @@ void StageEnd() {
   Color color   = g.winner ? GREEN     : RED;
   Color color_d = g.winner ? DARKGREEN : DARKBROWN;
 
+  if (!g.winner) DrawEnemies();
   DrawCenteredText(message, 80, Shake(-0.2, 13, 4), 250 + Shake(-0.2, 5, 5), color_d);
   DrawCenteredText(message, 80, Shake(0,    13, 4), 250 + Shake(0,    5, 5), color);
-  if (g.winner) {
-    DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
-    DrawPlayer();
-  } else {
-    DrawCenteredText("- Hit Enter -", 40, 0, WINDOW_HEIGHT - 50, GRAY);
-    DrawEnemies();
-  }
+   DrawCenteredText("- Hit Enter -", 38, 0, WINDOW_HEIGHT - 50, GRAY);
+  if (g.winner) DrawPlayer();
 }
 
+// Jogo
 void StageGame() {
+  // Bloco que roda no inicio de cada round
   if (StageInEvent()) {
-    background_color = BACKGROUND_COLOR;
-    star_speed = STAR_SPEED;
-
+    g.level++;
     g.player.pos.y  = WINDOW_HEIGHT - SHIP_HEIGHT - 10;
     g.player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
     g.player.shooting = 0;
-    player_immune     = 0;
-
-    enemy_direction  = 1;
-
+    player_immune = 0;
+    enemy_direction = 1;
     a_player_out.running = 0;
     StartAnimation(&a_player_inn);
+    g.player.hp = 3 - g.mode;
 
-    g.player.hp = g.mode == NORMAL ? 3 : g.mode == HARD ? 2   : 1;
-
-    for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-      for (int j = 0; j < MAX_ENEMY_LINES; j++) {
-        g.enemies[i][j].hp = 1;
-        g.enemies[i][j].shooting = 0;
-        g.enemies[i][j].last_shoot = GetTime() - GetRandomValue(0, 4);
-        g.enemies[i][j].pos = (Rectangle) { i * 60, 15 + j * 60, SHIP_WIDTH, SHIP_HEIGHT };
-        g.enemies[i][j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-        g.enemies[i][j].bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
-        g.enemies[i][j].shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
-        g.enemies[i][j].speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
-      }
-    }
-
-    for (int i = 0; i < MAX_BARRIERS; i++) {
-      g.barriers[i].max_hp = 4;
-      g.barriers[i].hp = g.barriers[i].max_hp;
-      g.barriers[i].pos = (Rectangle) { (i + 1) * ((float) WINDOW_WIDTH / (MAX_BARRIERS + 1)), 400, SHIP_WIDTH, SHIP_HEIGHT };
-    }
-
-    background_color.r += g.mode * DAMAGE_REDNESS;
-    star_speed         *= g.mode + 1;
+    GenerateMap();
   }
+  if ((int)(g.timer - GetTime()) <= 0) LoseGame(); // Faz o player perder o jogo caso alcance o tempo limite
+  if (IsKeyPressed(KEY_F2)) WinGame();             // Atalho pro jogador ganhar caso aperte F2
+  if (IsKeyPressed(KEY_F3)) LoseGame();            // Atalho pro jogador perder caso aperte F3
 
-  if (IsKeyPressed(KEY_F2)) WinGame();
-  if (IsKeyPressed(KEY_F3)) LoseGame();
-
+  // Decrementa os frames de imunidade se o player estiver imune
   if (player_immune) player_immune--;
 
   EnemiesMovement();
@@ -444,7 +415,7 @@ void StageGame() {
   DrawHUD();
 }
 
-// Draw
+// --- Funcoes responsaveis por desenhar o jogo
 
 void DrawHUD() {
   char buffer[32];
@@ -452,6 +423,9 @@ void DrawHUD() {
     sprintf(buffer, "%d HP", g.player.hp);
     DrawText(buffer, 10, 10, 30, WHITE);
   }
+
+  sprintf(buffer, "%d", (int) (g.timer - GetTime()));
+  DrawText(buffer, WINDOW_WIDTH - MeasureText(buffer, 30) - 10, 10, 30, WHITE);
 }
 
 void DrawEnemies() {
@@ -467,11 +441,12 @@ void DrawEnemies() {
 
   Rectangle frame_rec = { frame * frame_size.x, 0, frame_size.x, frame_size.y };
 
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-    for (int j = 0; j < MAX_ENEMY_LINES; j++) {
+  for (int i = 0; i < g.enemy_columns; i++) {
+    for (int j = 0; j < g.enemy_lines; j++) {
+      // So desenha se o inimigo estiver vivo
       if(g.enemies[i][j].hp) {
         Rectangle pos_rec   = { g.enemies[i][j].pos.x, g.enemies[i][j].pos.y, 32, 32 };
-        DrawTexturePro(g.assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+        DrawTexturePro(assets.enemy, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
       }
     }
   }
@@ -481,42 +456,78 @@ void DrawPlayer() {
   Rectangle frame_rec = { 0, 0, 32, 32 };
   Rectangle pos_rec   = { g.player.pos.x, g.player.pos.y, 32, 32 };
 
+  // Animacao do player entrar na tela
   if (a_player_inn.running) {
     float x = AnimationKeyFrame(&a_player_inn);
     pos_rec.y += pow(x - 1, 2) * 50;
   }
 
   Color color = { 255, 255, 255, player_immune ? 127 : 255 };
-  DrawTexturePro(g.assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
+  DrawTexturePro(assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
 }
 
 void DrawBullets() {
-  if (g.player.shooting) DrawRectangleRec(g.player.bullet, PLAYER_BULLET_COLOR);
+  if (g.player.shooting) DrawRectangleRec(g.player.bullet, PURPLE);
 
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++)
-    for (int j = 0; j < MAX_ENEMY_LINES; j++)
+  for (int i = 0; i < g.enemy_columns; i++)
+    for (int j = 0; j < g.enemy_lines; j++)
       if (g.enemies[i][j].shooting)
-        DrawRectangleRec(g.enemies[i][j].bullet,  ENEMY_BULLET_COLOR);
+        DrawRectangleRec(g.enemies[i][j].bullet,  GREEN);
 }
 
 void DrawStars() {
+  // Desenha e move as estrelas
   for (int i = 0; i < NUM_STARS; i++) {
-    stars[i][1] = CIRCULAR_CLAMP(-STAR_SIZE, stars[i][1] + star_speed, WINDOW_HEIGHT);
-    DrawRectangle(stars[i][0], stars[i][1], STAR_SIZE, STAR_SIZE, WHITE);
+    stars[i][1] = CIRCULAR_CLAMP(-2, stars[i][1] + star_speed, WINDOW_HEIGHT);
+    DrawRectangle(stars[i][0], stars[i][1], 2, 2, WHITE);
   }
 }
 
 void DrawBarriers() {
   Rectangle frame_rec = { 0, 0, 32, 32 };
-  for (int i = 0; i < MAX_BARRIERS; i++) {
+  for (int i = 0; i < LEN(g.barriers); i++) {
     if (!g.barriers[i].hp) continue;
     Rectangle pos_rec = { g.barriers[i].pos.x, g.barriers[i].pos.y, 32, 32 };
     int spr_i = 4 - (float) g.barriers[i].hp / g.barriers[i].max_hp * 4;
-    DrawTexturePro(g.assets.barrier[spr_i], frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
+    DrawTexturePro(assets.barrier[spr_i], frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, WHITE);
   }
 }
 
-// Game functions
+// --- Funcoes do jogo
+
+void GenerateMap() {
+  background_color = BACKGROUND_COLOR;
+  background_color.r = g.mode * DAMAGE_REDNESS;
+  star_speed = STAR_SPEED + ((g.level-1)/4.0) * (g.mode + 1);
+  g.timer = MAX(80, GetTime() + 120 - (g.level * 10));
+  g.enemy_columns = MIN(7 + ((g.level - 1) / 2), LEN(g.enemies));
+  g.enemy_lines = MIN(3 + (g.level < 5 ? 0 : (((g.level - 6) / 2))), LEN(g.enemies[0]));
+
+  // Inicializa a matriz dos inimigos
+  for (int i = 0; i < LEN(g.enemies); i++) {
+    for (int j = 0; j < LEN(g.enemies[0]); j++) {
+      g.enemies[i][j].hp = 1;
+      if (i >= g.enemy_columns || j >= g.enemy_lines) g.enemies[i][j].hp = 0;
+      g.enemies[i][j].shooting = 0;
+      g.enemies[i][j].last_shoot = GetTime() - GetRandomValue(0, 4);
+      g.enemies[i][j].pos = (Rectangle) { i * 60, 15 + j * 60, SHIP_WIDTH, SHIP_HEIGHT };
+      g.enemies[i][j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
+      g.enemies[i][j].bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
+      g.enemies[i][j].bullet_speed *= 1 + MIN(0.2, g.level/10.0);
+      g.enemies[i][j].shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
+      g.enemies[i][j].shoot_timer *= 1 - MIN(0.2, g.level/10.0);
+      g.enemies[i][j].speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
+      g.enemies[i][j].speed *= 1 + MIN(0.2, g.level/10.0);
+    }
+  }
+
+  // Inicializa as barreiras
+  for (int i = 0; i < LEN(g.barriers); i++) {
+    g.barriers[i].max_hp = g.mode == NORMAL ? 5 : g.mode == HARD ? 8   : 10;
+    g.barriers[i].hp = g.barriers[i].max_hp;
+    g.barriers[i].pos = (Rectangle) { (i + 1) * ((float) WINDOW_WIDTH / ((int)LEN(g.barriers) + 1)), 400, SHIP_WIDTH, SHIP_HEIGHT };
+  }
+}
 
 void PlayerMovement() {
   if ((IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) && !CheckCollisionRecs(g.player.pos, g.borders[3])) g.player.pos.x += g.player.speed;
@@ -524,33 +535,34 @@ void PlayerMovement() {
 }
 
 void EnemiesMovement() {
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-    for (int j = 0; j < MAX_ENEMY_LINES; j++) {
+  for (int i = 0; i < g.enemy_columns; i++) {
+    for (int j = 0; j < g.enemy_lines; j++) {
       if      (CheckCollisionRecs(g.enemies[i][j].pos, g.borders[2])) enemy_direction =  1;
       else if (CheckCollisionRecs(g.enemies[i][j].pos, g.borders[3])) enemy_direction = -1;
     }
   }
 
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++)
-    for (int j = 0; j < MAX_ENEMY_LINES; j++)
+  for (int i = 0; i < g.enemy_columns; i++)
+    for (int j = 0; j < g.enemy_lines; j++)
       g.enemies[i][j].pos.x += g.enemies[i][j].speed * enemy_direction;
 }
 
 void EnemyShoot() {
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-    for (int j = 0; j < MAX_ENEMY_LINES; j++) {
+  for (int i = 0; i < g.enemy_columns; i++) {
+    for (int j = 0; j < g.enemy_lines; j++) {
       if (g.enemies[i][j].shooting) {
         EnemiesBulletCollision();
         g.enemies[i][j].bullet.y += g.enemies[i][j].bullet_speed;
         continue;
       }
 
-      if (TimeSince(g.enemies[i][j].last_shoot) < g.enemies[i][j].shoot_timer || !g.enemies[i][j].hp) continue;
+      // Atira se o inimigo estiver vivo e no tempo
+      if (TimeSince(g.enemies[i][j].last_shoot) < g.enemies[i][j].shoot_timer || !g.enemies[i][j].hp || (g.enemies[i][j+1].hp && j+1 < LEN(g.enemies[0]))) continue;
       g.enemies[i][j].bullet.x = g.enemies[i][j].pos.x + g.enemies[i][j].pos.width  / 2;
       g.enemies[i][j].bullet.y = g.enemies[i][j].pos.y + g.enemies[i][j].pos.height / 2;
       g.enemies[i][j].shooting = 1;
       g.enemies[i][j].last_shoot = GetTime();
-      PlaySound(g.assets.s_e_shoot);
+      PlaySound(assets.s_e_shoot);
     }
   }
 }
@@ -566,141 +578,157 @@ void PlayerShoot() {
   g.player.bullet.x = g.player.pos.x + g.player.pos.width  / 2 - BULLET_WIDTH  / 2.0;
   g.player.bullet.y = g.player.pos.y + g.player.pos.height / 2 - BULLET_HEIGHT / 2.0;
   g.player.shooting = 1;
-  PlaySound(g.assets.s_shoot[GetRandomValue(0, 3)]);
+  PlaySound(assets.s_shoot[GetRandomValue(0, 3)]);
 }
 
 void EnemiesBulletCollision() {
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-    for (int j = 0; j < MAX_ENEMY_LINES; j++) {
-      if (!player_immune && CheckCollisionRecs(g.player.pos, g.enemies[i][j].bullet) && g.enemies[i][j].shooting) {
+  // Loopa todos inimigos
+  for (int i = 0; i < g.enemy_columns; i++) {
+    for (int j = 0; j < g.enemy_lines; j++) {
+      if (!g.enemies[i][j].shooting) continue;
+      // Colisao com o player
+      if (CheckCollisionRecs(g.player.pos, g.enemies[i][j].bullet)) {
         g.enemies[i][j].shooting = 0;
         TakeDamage();
       }
 
-      if (!g.enemies[i][j].shooting) continue;
-
-      for (int a = 0; a < MAX_BARRIERS; a++) {
+      // Colisao com alguma barreira
+      for (int a = 0; a < LEN(g.barriers); a++) {
         if (CheckCollisionRecs(g.barriers[a].pos,g.enemies[i][j].bullet) && g.barriers[a].hp) {
-          PlaySound(g.assets.s_hit);
           g.barriers[a].hp -= 1;
+          PlaySound(g.barriers[a].hp ? assets.s_shield : assets.s_break);
           g.enemies[i][j].shooting = 0;
         }
       }
 
+      // Colisao com a borda
       if (CheckCollisionRecs(g.enemies[i][j].bullet, g.borders[1]))
         g.enemies[i][j].shooting = 0;
-
     }
   }
 }
 
-
 void PlayerBulletCollision() {
-  for (int i = 0; i < MAX_ENEMY_COLUMNS; i++) {
-    for (int j = 0; j < MAX_ENEMY_LINES; j++) {
+  // Loopa todos inimigos
+  for (int i = 0; i < g.enemy_columns; i++) {
+    for (int j = 0; j < g.enemy_lines; j++) {
+      // Colisao com inimigo
       if (CheckCollisionRecs(g.enemies[i][j].pos, g.player.bullet) && g.enemies[i][j]. hp) {
         g.enemies[i][j].hp = 0;
         g.player.shooting = 0;
-        PlaySound(g.assets.s_hit);
+        PlaySound(assets.s_hit);
 
-        for (int a = 0; a < MAX_ENEMY_COLUMNS; a++)
-          for (int c = 0; c < MAX_ENEMY_LINES; c++)
+        for (int a = 0; a < g.enemy_columns; a++)
+          for (int c = 0; c < g.enemy_lines; c++)
             if (g.enemies[a][c].hp) return;
 
         WinGame();
       }
-      for (int k = 0; k < MAX_BARRIERS; k++)
+
+      // Colisao com alguma barreira
+      for (int k = 0; k < LEN(g.barriers); k++)
         if (CheckCollisionRecs(g.barriers[k].pos, g.player.bullet) && g.barriers[k].hp)
           g.player.shooting = 0;
 
+      // Colisao com a borda
       if (CheckCollisionRecs(g.player.bullet, g.borders[0]))
         g.player.shooting = 0;
     }
   }
 }
 
+// Reduz o HP e finaliza a partida se chegar em 0
 void TakeDamage() {
+  if (player_immune) return;
+  PlaySound(assets.s_damage);
   player_immune = 30;
   background_color.r += DAMAGE_REDNESS;
-  if (--g.player.hp) PlaySound(g.assets.s_hit);
+  if (--g.player.hp) PlaySound(assets.s_hit);
   else LoseGame();
 }
 
+// Finaliza o round com vitoria
 void WinGame() {
   StartAnimation(&a_player_out);
   SetStage(END_SCREEN);
-  PlaySound(g.assets.s_hit);
+  PlaySound(assets.s_hit);
   g.winner = 1;
   g.pts += 100 * (g.mode + 1);
   g.player.shooting = 0;
 }
 
+// Finaliza o round com derrota
 void LoseGame() {
   SetStage(END_SCREEN);
-  PlaySound(g.assets.s_death);
+  PlaySound(assets.s_death);
   g.winner = 0;
   WriteRank();
-  g.pts = 0;
 }
 
-// Stage
-
+// Funcao pra checar se e o primeiro frame e desligar a flag
 int StageInEvent() {
   int tmp = stage_in_event;
   stage_in_event = 1;
   return !tmp;
 }
 
+// Entra em um estagio e desativa a flag de primeiro frame
 void SetStage(Stage stage) {
   g.stage = stage;
   stage_in_event = 0;
 }
 
-// Assets
+// --- Assets
 
 void LoadAssets() {
-  g.assets.music      = LoadMusicStream("assets/soundtrack.mp3");
-  g.assets.enemy      = LoadTexture("assets/enemy.png");
-  g.assets.player     = LoadTexture("assets/player.png");
-  g.assets.barrier[0] = LoadTexture("assets/barrier0.png");
-  g.assets.barrier[1] = LoadTexture("assets/barrier1.png");
-  g.assets.barrier[2] = LoadTexture("assets/barrier2.png");
-  g.assets.barrier[3] = LoadTexture("assets/barrier3.png");
-  g.assets.s_key      = LoadSound("assets/key.wav");
-  g.assets.s_undo     = LoadSound("assets/undo.wav");
-  g.assets.s_enter    = LoadSound("assets/enter.wav");
-  g.assets.s_hit      = LoadSound("assets/hit.wav");
-  g.assets.s_nop      = LoadSound("assets/nop.wav");
-  g.assets.s_death    = LoadSound("assets/death.wav");
-  g.assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
-  g.assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
-  g.assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
-  g.assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
-  g.assets.s_e_shoot  = LoadSound("assets/shoot.wav");
+  assets.music      = LoadMusicStream("assets/soundtrack.mp3");
+  assets.enemy      = LoadTexture("assets/enemy.png");
+  assets.player     = LoadTexture("assets/player.png");
+  assets.barrier[0] = LoadTexture("assets/barrier0.png");
+  assets.barrier[1] = LoadTexture("assets/barrier1.png");
+  assets.barrier[2] = LoadTexture("assets/barrier2.png");
+  assets.barrier[3] = LoadTexture("assets/barrier3.png");
+  assets.s_key      = LoadSound("assets/key.wav");
+  assets.s_undo     = LoadSound("assets/undo.wav");
+  assets.s_enter    = LoadSound("assets/enter.wav");
+  assets.s_hit      = LoadSound("assets/hit.wav");
+  assets.s_nop      = LoadSound("assets/nop.wav");
+  assets.s_death    = LoadSound("assets/death.wav");
+  assets.s_shoot[0] = LoadSound("assets/shoot_1.wav");
+  assets.s_shoot[1] = LoadSound("assets/shoot_2.wav");
+  assets.s_shoot[2] = LoadSound("assets/shoot_3.wav");
+  assets.s_shoot[3] = LoadSound("assets/shoot_4.wav");
+  assets.s_e_shoot  = LoadSound("assets/shoot.wav");
+  assets.s_damage  = LoadSound("assets/damage.wav");
+  assets.s_shield  = LoadSound("assets/shield.wav");
+  assets.s_break  = LoadSound("assets/break.wav");
 }
 
 void UnloadAssets() {
-  UnloadMusicStream(g.assets.music);
-  UnloadTexture(g.assets.player);
-  UnloadTexture(g.assets.enemy);
-  UnloadTexture(g.assets.barrier[0]);
-  UnloadTexture(g.assets.barrier[1]);
-  UnloadTexture(g.assets.barrier[2]);
-  UnloadTexture(g.assets.barrier[3]);
-  UnloadSound(g.assets.s_key);
-  UnloadSound(g.assets.s_undo);
-  UnloadSound(g.assets.s_enter);
-  UnloadSound(g.assets.s_hit);
-  UnloadSound(g.assets.s_nop);
-  UnloadSound(g.assets.s_death);
-  UnloadSound(g.assets.s_shoot[0]);
-  UnloadSound(g.assets.s_shoot[1]);
-  UnloadSound(g.assets.s_shoot[2]);
-  UnloadSound(g.assets.s_shoot[3]);
-  UnloadSound(g.assets.s_e_shoot);
+  UnloadMusicStream(assets.music);
+  UnloadTexture(assets.player);
+  UnloadTexture(assets.enemy);
+  UnloadTexture(assets.barrier[0]);
+  UnloadTexture(assets.barrier[1]);
+  UnloadTexture(assets.barrier[2]);
+  UnloadTexture(assets.barrier[3]);
+  UnloadSound(assets.s_key);
+  UnloadSound(assets.s_undo);
+  UnloadSound(assets.s_enter);
+  UnloadSound(assets.s_hit);
+  UnloadSound(assets.s_nop);
+  UnloadSound(assets.s_death);
+  UnloadSound(assets.s_shoot[0]);
+  UnloadSound(assets.s_shoot[1]);
+  UnloadSound(assets.s_shoot[2]);
+  UnloadSound(assets.s_shoot[3]);
+  UnloadSound(assets.s_e_shoot);
+  UnloadSound(assets.s_damage);
+  UnloadSound(assets.s_shield);
+  UnloadSound(assets.s_break);
 }
 
-// Animation
+// --- Animacoes
 
 void StartAnimation(Animation* anim) {
   anim->start   = GetTime();
@@ -713,7 +741,7 @@ float AnimationKeyFrame(Animation* anim) {
   return x;
 }
 
-// Transition
+// Transicoes
 
 void StartTransition(Stage to, TransitionType type) {
   StartAnimation(&transition);
