@@ -1,1 +1,1 @@
-gcc spaceInvader.c -o prog -lraylib -lm && ./prog
+gcc src/spaceInvader.c -o prog -lraylib -lm && ./prog

@@ -27,8 +27,7 @@
 #define VOLUME 0.5
 
 #define ALL_ENEMIES_SHOOT 0
-#define SPICY_MODE        1
-#define SHOW_HP           1
+#define SPICY_MODE        0
 
 // ---
 
@@ -56,7 +55,7 @@ typedef struct {
 } Barrier;
 
 typedef struct {
-  Texture2D player, enemy, barrier[4];
+  Texture2D player[3], enemy, barrier[4];
   Sound s_key, s_undo, s_enter, s_hit;
   Sound s_nop, s_death, s_shoot[4], s_e_shoot;
   Sound s_damage, s_shield, s_break;
@@ -71,7 +70,8 @@ typedef struct {
   Stage stage;
   Mode mode;
   float enemy_speed, enemy_bullet_speed;
-  int winner, pts, timer, level, enemy_columns, enemy_lines, enemy_shoot_timer;
+  int winner, pts, start_time, timer, level;
+  int enemy_columns, enemy_lines, enemy_shoot_timer;
 } Game;
 
 typedef struct {
@@ -88,7 +88,6 @@ void  StageStart();
 void  StageMode();
 void  StageEnd();
 void  StageGame();
-void  DrawHUD();
 void  DrawEnemies();
 void  DrawPlayer();
 void  DrawBullets();
@@ -179,10 +178,10 @@ void InitGame() {
   SetMasterVolume(VOLUME);
   PlayMusicStream(assets.music);
 
-  g.borders[0] = (Rectangle) { 0, -10, WINDOW_WIDTH, 10 };           // Up
-  g.borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 10 }; // Bottom
-  g.borders[2] = (Rectangle) { -10, 0, 10, WINDOW_HEIGHT };          // Left
-  g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 10, WINDOW_HEIGHT }; // Right
+  g.borders[0] = (Rectangle) { 0, -30, WINDOW_WIDTH, 30 };           // Up
+  g.borders[1] = (Rectangle) { 0, WINDOW_HEIGHT, WINDOW_WIDTH, 30 }; // Bottom
+  g.borders[2] = (Rectangle) { -30, 0, 30, WINDOW_HEIGHT };          // Left
+  g.borders[3] = (Rectangle) { WINDOW_WIDTH, 0, 30, WINDOW_HEIGHT }; // Right
 
   for (int i = 0; i < NUM_STARS; i++) {
     stars[i][0] = GetRandomValue(0, WINDOW_WIDTH);
@@ -203,7 +202,7 @@ void ReadRank() {
   int i = 0;
   while (fgets(saves[i], 32, f_save) && i < 5) i++;
   i = 0;
-  while (fgets(rank[i], 32, f_rank) && i < 5) i++;
+  while (fgets(rank[i], 32, f_rank)  && i < 5) i++;
 
   fclose(f_save);
   fclose(f_rank);
@@ -246,12 +245,12 @@ void StageStart() {
   // "if (StageInEvent())" cria um bloco de código que só executa no primeiro frame do estágio
   if (StageInEvent()) {
     // Inicializa valores toda vez que se entra no menu principal
+    g.player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 30, SHIP_WIDTH, SHIP_HEIGHT };
     background_color = BACKGROUND_COLOR;
     star_speed = STAR_SPEED;
     g.winner = 0;
-    g.pts = 0;
-    g.level = 0;
-    g.player.pos = (Rectangle) { WINDOW_WIDTH / 2.0 - SHIP_WIDTH / 2.0, WINDOW_HEIGHT - SHIP_HEIGHT - 10, SHIP_WIDTH, SHIP_HEIGHT };
+    g.pts    = 0;
+    g.level  = 0;
     ReadRank();
   }
 
@@ -269,12 +268,12 @@ void StageStart() {
 
   // Alterna em mostrar o ranking ou os jogos anteriores
   static int rank_toggle = 0;
-  if (IsKeyPressed(KEY_TAB)) {
+  if (IsKeyPressed(KEY_TAB) && !transition.running) {
     rank_toggle = !rank_toggle;
     PlaySound(assets.s_key);
   }
 
-  if (IsKeyPressed(KEY_BACKSPACE)) {
+  if (IsKeyPressed(KEY_BACKSPACE) && !transition.running) {
     if (!strlen(g.nick)) PlaySound(assets.s_nop);
     else {
       g.nick[strlen(g.nick) - 1] = '\0';
@@ -282,7 +281,7 @@ void StageStart() {
     }
   }
 
-  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+  if ((IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) && !transition.running) {
     if (remaining) PlaySound(assets.s_nop);
     else {
       StartTransition(MODE_SCREEN, T_LTR);
@@ -314,7 +313,7 @@ void StageStart() {
 void StageMode() {
   static Mode selected = NORMAL;
 
-  if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) {
+  if ((IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) && !transition.running) {
     if (selected == HARDCORE) PlaySound(assets.s_nop);
     else {
       selected++;
@@ -322,7 +321,7 @@ void StageMode() {
     }
   }
 
-  if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) {
+  if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) && !transition.running) {
     if (!selected) PlaySound(assets.s_nop);
     else {
       selected--;
@@ -330,7 +329,7 @@ void StageMode() {
     }
   }
 
-  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+  if ((IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) && !transition.running) {
     StartTransition(GAME_SCREEN, T_BTT);
     g.mode = selected;
     PlaySound(assets.s_enter);
@@ -356,7 +355,7 @@ void StageMode() {
 
 // Tela Final
 void StageEnd() {
-  if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+  if ((IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) && !transition.running) {
     StartTransition(g.winner ? GAME_SCREEN : START_SCREEN, g.winner ? T_BTT : T_RTL);
     PlaySound(assets.s_enter);
   }
@@ -365,7 +364,7 @@ void StageEnd() {
 
   if (a_player_out.running) {
     float x = AnimationKeyFrame(&a_player_out);
-    g.player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 10 - pow(x / a_player_out.duration, 2) * WINDOW_HEIGHT;
+    g.player.pos.y = WINDOW_HEIGHT - SHIP_HEIGHT - 30 - pow(x / a_player_out.duration, 2) * WINDOW_HEIGHT;
   }
 
   char* message = g.winner ? "YOU WON" : "YOU DIED";
@@ -375,7 +374,7 @@ void StageEnd() {
   if (!g.winner) DrawEnemies();
   DrawCenteredText(message, 80, Shake(-0.2, 13, 4), 250 + Shake(-0.2, 5, 5), color_d);
   DrawCenteredText(message, 80, Shake(0,    13, 4), 250 + Shake(0,    5, 5), color);
-   DrawCenteredText("- Hit Enter -", 38, 0, WINDOW_HEIGHT - 50, GRAY);
+  DrawCenteredText("- Hit Enter -", 38, 0, WINDOW_HEIGHT - 50, GRAY);
   if (g.winner) DrawPlayer();
 }
 
@@ -384,7 +383,7 @@ void StageGame() {
   // Bloco que roda no inicio de cada round
   if (StageInEvent()) {
     g.level++;
-    g.player.pos.y  = WINDOW_HEIGHT - SHIP_HEIGHT - 10;
+    g.player.pos.y  = WINDOW_HEIGHT - SHIP_HEIGHT - 30;
     g.player.bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
     g.player.shooting = 0;
     player_immune = 0;
@@ -395,9 +394,9 @@ void StageGame() {
 
     GenerateMap();
   }
-  if ((int)(g.timer - GetTime()) <= 0) LoseGame(); // Faz o player perder o jogo caso alcance o tempo limite
-  if (IsKeyPressed(KEY_F2)) WinGame();             // Atalho pro jogador ganhar caso aperte F2
-  if (IsKeyPressed(KEY_F3)) LoseGame();            // Atalho pro jogador perder caso aperte F3
+  if (TimeSince(g.start_time) > g.timer) LoseGame();           // Faz o player perder o jogo caso alcance o tempo limite
+  if (IsKeyPressed(KEY_F2) && !transition.running) WinGame();  // Atalho pro jogador ganhar caso aperte F2
+  if (IsKeyPressed(KEY_F3) && !transition.running) LoseGame(); // Atalho pro jogador perder caso aperte F3
 
   // Decrementa os frames de imunidade se o player estiver imune
   if (player_immune) player_immune--;
@@ -410,21 +409,9 @@ void StageGame() {
   DrawEnemies();
   DrawPlayer();
   DrawBarriers();
-  DrawHUD();
 }
 
 // --- Funcoes responsaveis por desenhar o jogo
-
-void DrawHUD() {
-  char buffer[32];
-  if (SHOW_HP) {
-    sprintf(buffer, "%d HP", g.player.hp);
-    DrawText(buffer, 10, 10, 30, WHITE);
-  }
-
-  sprintf(buffer, "%d", (int) (g.timer - GetTime()));
-  DrawText(buffer, WINDOW_WIDTH - MeasureText(buffer, 30) - 10, 10, 30, WHITE);
-}
 
 void DrawEnemies() {
   Vector2 frame_size = { 32, 32 };
@@ -461,7 +448,8 @@ void DrawPlayer() {
   }
 
   Color color = { 255, 255, 255, player_immune ? 127 : 255 };
-  DrawTexturePro(assets.player, frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
+  int spr_i = 3 - (float) g.player.hp;
+  DrawTexturePro(assets.player[spr_i], frame_rec, pos_rec, (Vector2) { 0, 0 }, 0, color);
 }
 
 void DrawBullets() {
@@ -470,7 +458,7 @@ void DrawBullets() {
   for (int i = 0; i < g.enemy_columns; i++)
     for (int j = 0; j < g.enemy_lines; j++)
       if (g.enemies[i][j].shooting)
-        DrawRectangleRec(g.enemies[i][j].bullet,  GREEN);
+        DrawRectangleRec(g.enemies[i][j].bullet, GREEN);
 }
 
 void DrawStars() {
@@ -495,33 +483,34 @@ void DrawBarriers() {
 
 void GenerateMap() {
   background_color = BACKGROUND_COLOR;
-  background_color.r = g.mode * DAMAGE_REDNESS;
-  star_speed = STAR_SPEED + ((g.level-1)/4.0) * (g.mode + 1);
-  g.timer = MAX(80, GetTime() + 120 - (g.level * 10));
+  background_color.r += g.mode * DAMAGE_REDNESS;
+  star_speed = STAR_SPEED + (MIN(g.level - 0, 10) / 4.0) * (g.mode + 1) * 0.5;
+
   g.enemy_columns = MIN(7 + ((g.level - 1) / 2), LEN(g.enemies));
-  g.enemy_lines = MIN(3 + (g.level < 5 ? 0 : (((g.level - 6) / 2))), LEN(g.enemies[0]));
+  g.enemy_lines = MIN(3 + (g.level < 5 ? 0 : ((g.level - 6) / 2)), LEN(g.enemies[0]));
+  g.timer = MAX(80, 100 - (g.level * 5));
+  g.start_time = GetTime();
 
   // Inicializa a matriz dos inimigos
   for (int i = 0; i < LEN(g.enemies); i++) {
     for (int j = 0; j < LEN(g.enemies[0]); j++) {
-      g.enemies[i][j].hp = 1;
-      if (i >= g.enemy_columns || j >= g.enemy_lines) g.enemies[i][j].hp = 0;
+      g.enemies[i][j].hp = i < g.enemy_columns && j < g.enemy_lines;
       g.enemies[i][j].shooting = 0;
-      g.enemies[i][j].next_shoot = GetTime() + GetRandomValue(0, 4);
+      g.enemies[i][j].next_shoot = GetTime() + GetRandomValue(1, 5);
       g.enemies[i][j].pos = (Rectangle) { i * 60, 15 + j * 60, SHIP_WIDTH, SHIP_HEIGHT };
       g.enemies[i][j].bullet = (Rectangle) { 0, 0, BULLET_WIDTH, BULLET_HEIGHT };
-      g.enemy_bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6   : 7;
-      g.enemy_bullet_speed *= 1 + MIN(0.2, g.level/10.0);
-      g.enemy_shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3   : 2;
-      g.enemy_shoot_timer *= 1 - MIN(0.2, g.level/10.0);
-      g.enemy_speed  = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
-      g.enemy_speed *= 1 + MIN(0.2, g.level/10.0);
+      g.enemy_bullet_speed = g.mode == NORMAL ? 5 : g.mode == HARD ? 6 : 7;
+      g.enemy_bullet_speed *= 1 + MIN(0.2, g.level / 10.0);
+      g.enemy_shoot_timer  = g.mode == NORMAL ? 4 : g.mode == HARD ? 3 : 2;
+      g.enemy_shoot_timer  *= 1 - MIN(0.2, g.level / 10.0);
+      g.enemy_speed        = g.mode == NORMAL ? 3 : g.mode == HARD ? 4.5 : 6;
+      g.enemy_speed        *= 1 + MIN(0.2, g.level / 10.0);
     }
   }
 
   // Inicializa as barreiras
   for (int i = 0; i < LEN(g.barriers); i++) {
-    g.barriers[i].max_hp = g.mode == NORMAL ? 5 : g.mode == HARD ? 8   : 10;
+    g.barriers[i].max_hp = g.mode == NORMAL ? 5 : g.mode == HARD ? 8 : 10;
     g.barriers[i].hp = g.barriers[i].max_hp;
     g.barriers[i].pos = (Rectangle) { (i + 1) * ((float) WINDOW_WIDTH / ((int)LEN(g.barriers) + 1)), 400, SHIP_WIDTH, SHIP_HEIGHT };
   }
@@ -615,6 +604,7 @@ void PlayerBulletCollision() {
         g.enemies[i][j].hp = 0;
         g.player.shooting = 0;
         PlaySound(assets.s_hit);
+        g.pts += 5;
 
         for (int a = 0; a < g.enemy_columns; a++)
           for (int c = 0; c < g.enemy_lines; c++)
@@ -681,7 +671,9 @@ void SetStage(Stage stage) {
 void LoadAssets() {
   assets.music      = LoadMusicStream("assets/soundtrack.mp3");
   assets.enemy      = LoadTexture("assets/enemy.png");
-  assets.player     = LoadTexture("assets/player.png");
+  assets.player[0]  = LoadTexture("assets/player0.png");
+  assets.player[1]  = LoadTexture("assets/player1.png");
+  assets.player[2]  = LoadTexture("assets/player2.png");
   assets.barrier[0] = LoadTexture("assets/barrier0.png");
   assets.barrier[1] = LoadTexture("assets/barrier1.png");
   assets.barrier[2] = LoadTexture("assets/barrier2.png");
@@ -704,7 +696,9 @@ void LoadAssets() {
 
 void UnloadAssets() {
   UnloadMusicStream(assets.music);
-  UnloadTexture(assets.player);
+  UnloadTexture(assets.player[0]);
+  UnloadTexture(assets.player[1]);
+  UnloadTexture(assets.player[2]);
   UnloadTexture(assets.enemy);
   UnloadTexture(assets.barrier[0]);
   UnloadTexture(assets.barrier[1]);
