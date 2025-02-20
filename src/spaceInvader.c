@@ -90,6 +90,7 @@ void  StageEnd();
 void  StageGame();
 void  DrawEnemies();
 void  DrawPlayer();
+void  DrawHUD();
 void  DrawBullets();
 void  DrawStars();
 void  DrawBarriers();
@@ -409,9 +410,14 @@ void StageGame() {
   DrawEnemies();
   DrawPlayer();
   DrawBarriers();
+  DrawHUD();
 }
 
 // --- Funcoes responsaveis por desenhar o jogo
+
+void DrawHUD() {
+  DrawRectangle(0, WINDOW_HEIGHT - 3, WINDOW_WIDTH * (g.timer - TimeSince(g.start_time)) / g.timer, 3, WHITE);
+}
 
 void DrawEnemies() {
   Vector2 frame_size = { 32, 32 };
@@ -487,7 +493,7 @@ void GenerateMap() {
   star_speed = STAR_SPEED + (MIN(g.level - 0, 10) / 4.0) * (g.mode + 1) * 0.5;
 
   g.enemy_columns = MIN(7 + ((g.level - 1) / 2), LEN(g.enemies));
-  g.enemy_lines = MIN(3 + (g.level < 5 ? 0 : ((g.level - 6) / 2)), LEN(g.enemies[0]));
+  g.enemy_lines = MIN(4 + (g.level < 5 ? 0 : ((g.level - 6) / 2)), LEN(g.enemies[0]));
   g.timer = MAX(80, 100 - (g.level * 5));
   g.start_time = GetTime();
 
